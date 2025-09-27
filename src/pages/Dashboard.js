@@ -1,4 +1,3 @@
-// src/pages/Dashboard.js
 import React, { useEffect } from 'react';
 import SensorCard from '../components/SensorCard';
 import SensorChart from '../components/Chart';
@@ -10,7 +9,7 @@ const Dashboard = () => {
   const sensors = useSensorStore(state => state.sensors);
 
   useEffect(() => {
-    startSensorSimulation(); // start simulation
+    startSensorSimulation();
   }, []);
 
   const latest = sensors[sensors.length - 1];

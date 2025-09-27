@@ -1,4 +1,3 @@
-// src/api/sensorAPI.js
 import { useSensorStore } from '../context/sensorStore';
 
 export const startSensorSimulation = () => {
@@ -13,5 +12,5 @@ export const startSensorSimulation = () => {
       pressure: parseFloat((1000 + Math.random() * 50).toFixed(1)),
     };
     addSensorData(data);
-  }, 10000); // new reading every 2 seconds
+  }, 10000);
 };

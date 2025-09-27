@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useSensorStore } from '../context/sensorStore';
 
-// Button style definition
 const buttonStyle = {
   padding: '8px 15px',
   borderRadius: '8px',
@@ -14,14 +13,14 @@ const buttonStyle = {
 
 const SensorTable = () => {
   const sensors = useSensorStore(state => state.sensors);
-  const reversedSensors = [...sensors].reverse(); // latest first
+  const reversedSensors = [...sensors].reverse();
 
   const [currentPage, setCurrentPage] = useState(1);
   const readingsPerPage = 10;
 
   const totalPages = Math.ceil(reversedSensors.length / readingsPerPage);
 
-  // Get readings for current page
+
   const indexOfLast = currentPage * readingsPerPage;
   const indexOfFirst = indexOfLast - readingsPerPage;
   const currentReadings = reversedSensors.slice(indexOfFirst, indexOfLast);
@@ -64,7 +63,7 @@ const SensorTable = () => {
                 ))}
             </tbody>
         </table>
-      {/* Pagination Controls */}
+
       <div style={{ marginTop: '15px', display: 'flex', justifyContent: 'center', gap: '15px' }}>
         <button onClick={goToPrevPage} disabled={currentPage === 1} style={buttonStyle}>Prev</button>
         <span style={{ alignSelf: 'center' }}>Page {currentPage} of {totalPages}</span>
