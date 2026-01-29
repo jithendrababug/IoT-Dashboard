@@ -7,7 +7,15 @@ import db from "./db.js";
 dotenv.config();
 
 const app = express();
-app.use(cors());
+
+// ✅ CORS must be BEFORE routes
+app.use(
+  cors({
+    origin: ["http://localhost:3000", "https://jithendrababug.github.io"],
+    methods: ["GET", "POST"],
+  })
+);
+
 app.use(express.json());
 
 const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
@@ -26,10 +34,7 @@ function getSeverityAndTriggers({ temperature, humidity, pressure }) {
   if (humidity > 70) triggers.push(`Humidity: ${humidity}% (limit: 70%)`);
   if (pressure > 1020) triggers.push(`Pressure: ${pressure} hPa (limit: 1020 hPa)`);
 
-  // Decide severity
-  const critical =
-    temperature >= 35 || humidity >= 85 || pressure >= 1030;
-
+  const critical = temperature >= 35 || humidity >= 85 || pressure >= 1030;
   const severity = critical ? "CRITICAL" : "WARNING";
   const message = triggers.join(" | ");
 
@@ -41,7 +46,6 @@ app.post("/api/alerts/email", async (req, res) => {
   try {
     const { temperature, humidity, pressure } = req.body;
 
-    // Validate
     if (temperature == null || humidity == null || pressure == null) {
       return res.status(400).json({
         ok: false,
@@ -55,12 +59,10 @@ app.post("/api/alerts/email", async (req, res) => {
       pressure,
     });
 
-    // Only alert if threshold breached
     if (triggers.length === 0) {
       return res.json({ ok: true, sent: false, reason: "No threshold breached" });
     }
 
-    // Cooldown
     const nowMs = Date.now();
     if (nowMs - lastSentAt < COOLDOWN_MS) {
       return res.json({ ok: true, sent: false, reason: "Cooldown active" });
@@ -68,14 +70,11 @@ app.post("/api/alerts/email", async (req, res) => {
 
     const dateTime = new Date().toLocaleString();
 
-    // Store in SQLite
-    const stmt = db.prepare(`
+    db.prepare(`
       INSERT INTO alerts (created_at, severity, temperature, humidity, pressure, message)
       VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run(dateTime, severity, temperature, humidity, pressure, message);
+    `).run(dateTime, severity, temperature, humidity, pressure, message);
 
-    // Send email
     const subject = `🚨 [${severity}] IoT Alert (${dateTime})`;
     const text =
       `🚨 IoT Dashboard Alert\n\n` +
@@ -95,7 +94,6 @@ app.post("/api/alerts/email", async (req, res) => {
     });
 
     lastSentAt = nowMs;
-
     return res.json({ ok: true, sent: true, severity });
   } catch (err) {
     console.error("❌ Email alert error:", err);
@@ -103,26 +101,20 @@ app.post("/api/alerts/email", async (req, res) => {
   }
 });
 
-// ✅ Fetch alert history (latest first)
+// ✅ Fetch alert history
 app.get("/api/alerts/history", (req, res) => {
   try {
-    const rows = db
-      .prepare("SELECT * FROM alerts ORDER BY id DESC LIMIT 100")
-      .all();
+    const rows = db.prepare("SELECT * FROM alerts ORDER BY id DESC LIMIT 100").all();
     res.json({ ok: true, alerts: rows });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-app.listen(process.env.PORT || 5000, () => {
-  console.log(`Email alert server running on port ${process.env.PORT || 5000}`);
+// ✅ Health check (helps debugging Render)
+app.get("/health", (req, res) => {
+  res.json({ ok: true, service: "iot-alert-backend" });
 });
 
-
-app.use(
-  cors({
-    origin: ["http://localhost:3000", "https://jithendrababug.github.io"],
-    methods: ["GET", "POST"],
-  })
-);
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Email alert server running on port ${PORT}`));
