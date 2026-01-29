@@ -118,3 +118,11 @@ app.get("/api/alerts/history", (req, res) => {
 app.listen(process.env.PORT || 5000, () => {
   console.log(`Email alert server running on port ${process.env.PORT || 5000}`);
 });
+
+
+app.use(
+  cors({
+    origin: ["http://localhost:3000", "https://jithendrababug.github.io"],
+    methods: ["GET", "POST"],
+  })
+);

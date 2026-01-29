@@ -2,6 +2,12 @@ import React, { useEffect, useMemo, useState } from "react";
 
 const PAGE_SIZE = 10;
 
+// ✅ Auto-switch backend URL based on environment
+const API_BASE =
+  process.env.NODE_ENV === "production"
+    ? "https://iot-dashboard-y27r.onrender.com"
+    : "http://localhost:5000";
+
 export default function AlertHistory() {
   const [alerts, setAlerts] = useState([]);
   const [page, setPage] = useState(1);
@@ -13,14 +19,22 @@ export default function AlertHistory() {
       setLoading(true);
       setError("");
 
-      const res = await fetch("http://localhost:5000/api/alerts/history");
-      const json = await res.json();
+      const res = await fetch(`${API_BASE}/api/alerts/history`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
 
+      if (!res.ok) {
+        throw new Error(`Request failed (${res.status})`);
+      }
+
+      const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Failed to fetch alert history");
+
       setAlerts(Array.isArray(json.alerts) ? json.alerts : []);
       setPage(1);
     } catch (e) {
-      setError(e.message || "Error fetching alerts");
+      setError(e?.message || "Error fetching alerts");
     } finally {
       setLoading(false);
     }
@@ -37,7 +51,7 @@ export default function AlertHistory() {
 
   const pageData = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
-    return alerts.slice(start, start + PAGE_SIZE); // backend already returns DESC
+    return alerts.slice(start, start + PAGE_SIZE); // backend returns DESC
   }, [alerts, page]);
 
   const downloadCSV = () => {
@@ -161,7 +175,6 @@ export default function AlertHistory() {
         </table>
       </div>
 
-      {/* Pagination */}
       <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 14 }}>
         <button
           style={btnStyle}
@@ -180,6 +193,10 @@ export default function AlertHistory() {
         >
           Next
         </button>
+      </div>
+
+      <div style={{ marginTop: 10, textAlign: "center", color: "#6b7280", fontSize: 12 }}>
+        API: {API_BASE}
       </div>
     </div>
   );

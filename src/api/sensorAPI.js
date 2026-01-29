@@ -8,6 +8,12 @@ const ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 const INTERVAL_MS = 300000;              // 5 minutes
 const SEED_COUNT = 20;                   // preload 20 readings
 
+// ✅ Auto-switch backend URL based on environment
+const API_BASE =
+  process.env.NODE_ENV === "production"
+    ? "https://iot-dashboard-y27r.onrender.com"
+    : "http://localhost:5000";
+
 const makeReading = (dateObj) => ({
   id: dateObj.getTime(),
   time: dateObj.toLocaleTimeString(),
@@ -35,18 +41,22 @@ export const startSensorSimulation = () => {
   const tick = () => {
     const now = new Date();
     const data = makeReading(now);
+
+    // 1) store reading
     addSensorData(data);
 
+    // 2) thresholds
     const breach =
       data.temperature > 30 || data.humidity > 70 || data.pressure > 1020;
 
     const alertsEnabled = useSensorStore.getState().alertsEnabled;
 
+    // 3) send email alert (cooldown)
     const nowMs = Date.now();
     if (alertsEnabled && breach && nowMs - lastAlertAt >= ALERT_COOLDOWN_MS) {
       lastAlertAt = nowMs;
 
-      fetch("http://localhost:5000/api/alerts/email", {
+      fetch(`${API_BASE}/api/alerts/email`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
