@@ -4,9 +4,10 @@ const PAGE_SIZE = 10;
 
 // ✅ Auto-switch backend URL based on environment
 const API_BASE =
-  process.env.NODE_ENV === "production"
+  process.env.REACT_APP_API_BASE ||
+  (process.env.NODE_ENV === "production"
     ? "https://iot-dashboard-y27r.onrender.com"
-    : "http://localhost:5000";
+    : "http://localhost:5000");
 
 export default function AlertHistory() {
   const [alerts, setAlerts] = useState([]);

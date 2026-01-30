@@ -10,9 +10,10 @@ const SEED_COUNT = 20;                   // preload 20 readings
 
 // ✅ Auto-switch backend URL based on environment
 const API_BASE =
-  process.env.NODE_ENV === "production"
+  process.env.REACT_APP_API_BASE ||
+  (process.env.NODE_ENV === "production"
     ? "https://iot-dashboard-y27r.onrender.com"
-    : "http://localhost:5000";
+    : "http://localhost:5000");
 
 const makeReading = (dateObj) => ({
   id: dateObj.getTime(),
