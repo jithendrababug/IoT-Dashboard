@@ -195,10 +195,6 @@ export default function AlertHistory() {
           Next
         </button>
       </div>
-
-      <div style={{ marginTop: 10, textAlign: "center", color: "#6b7280", fontSize: 12 }}>
-        API: {API_BASE}
-      </div>
     </div>
   );
 }
