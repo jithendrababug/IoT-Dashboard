@@ -56,6 +56,7 @@ export const startSensorSimulation = () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...data,
+            readingId: data.id,
             clientTimeISO: now.toISOString(), // ✅ send true reading time
           }),
         });
