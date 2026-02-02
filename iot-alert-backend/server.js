@@ -8,7 +8,6 @@ dotenv.config();
 
 const app = express();
 
-// ✅ CORS must be BEFORE routes
 app.use(
   cors({
     origin: ["http://localhost:3000", "https://jithendrababug.github.io"],
@@ -26,7 +25,6 @@ const transporter = nodemailer.createTransport({
   auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
 });
 
-// Helper: severity + message builder
 function getSeverityAndTriggers({ temperature, humidity, pressure }) {
   const triggers = [];
 
@@ -41,16 +39,12 @@ function getSeverityAndTriggers({ temperature, humidity, pressure }) {
   return { triggers, severity, message };
 }
 
-// ✅ Send alert + store in DB
 app.post("/api/alerts/email", async (req, res) => {
   try {
-    const { temperature, humidity, pressure } = req.body;
+    const { temperature, humidity, pressure, clientTimeISO } = req.body;
 
     if (temperature == null || humidity == null || pressure == null) {
-      return res.status(400).json({
-        ok: false,
-        error: "Missing sensor values (temperature, humidity, pressure)",
-      });
+      return res.status(400).json({ ok: false, error: "Missing sensor values" });
     }
 
     const { triggers, severity, message } = getSeverityAndTriggers({
@@ -63,28 +57,32 @@ app.post("/api/alerts/email", async (req, res) => {
       return res.json({ ok: true, sent: false, reason: "No threshold breached" });
     }
 
-    const nowMs = Date.now();
-    if (nowMs - lastSentAt < COOLDOWN_MS) {
-      return res.json({ ok: true, sent: false, reason: "Cooldown active" });
-    }
+    // ✅ Use client reading time (IST) if available
+    const createdAt = clientTimeISO
+      ? new Date(clientTimeISO).toLocaleString()
+      : new Date().toLocaleString();
 
-    const dateTime = new Date().toLocaleString();
-
+    // ✅ ALWAYS store breached alert in DB (even if email is not sent)
     db.prepare(`
       INSERT INTO alerts (created_at, severity, temperature, humidity, pressure, message)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(dateTime, severity, temperature, humidity, pressure, message);
+    `).run(createdAt, severity, temperature, humidity, pressure, message);
 
-    const subject = `🚨 [${severity}] IoT Alert (${dateTime})`;
+    // ✅ Cooldown only affects EMAIL sending (not DB history)
+    const nowMs = Date.now();
+    if (nowMs - lastSentAt < COOLDOWN_MS) {
+      return res.json({ ok: true, sent: false, reason: "Cooldown active", severity });
+    }
+
+    // Send email
+    const subject = `🚨 [${severity}] IoT Alert (${createdAt})`;
     const text =
       `🚨 IoT Dashboard Alert\n\n` +
       `Severity: ${severity}\n` +
-      `Date & Time: ${dateTime}\n\n` +
+      `Date & Time: ${createdAt}\n\n` +
       `Triggered Conditions:\n- ${triggers.join("\n- ")}\n\n` +
       `Current Readings:\n` +
-      `Temperature: ${temperature}°C\n` +
-      `Humidity: ${humidity}%\n` +
-      `Pressure: ${pressure} hPa\n`;
+      `Temperature: ${temperature}°C\nHumidity: ${humidity}%\nPressure: ${pressure} hPa\n`;
 
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
@@ -101,7 +99,6 @@ app.post("/api/alerts/email", async (req, res) => {
   }
 });
 
-// ✅ Fetch alert history
 app.get("/api/alerts/history", (req, res) => {
   try {
     const rows = db.prepare("SELECT * FROM alerts ORDER BY id DESC LIMIT 100").all();
@@ -109,11 +106,6 @@ app.get("/api/alerts/history", (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
-});
-
-// ✅ Health check (helps debugging Render)
-app.get("/health", (req, res) => {
-  res.json({ ok: true, service: "iot-alert-backend" });
 });
 
 const PORT = process.env.PORT || 5000;

@@ -3,17 +3,14 @@ import { useSensorStore } from "../context/sensorStore";
 let intervalId = null;
 let seeded = false;
 
-let lastAlertAt = 0;
-const ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
-const INTERVAL_MS = 300000;              // 5 minutes
-const SEED_COUNT = 20;                   // preload 20 readings
+const INTERVAL_MS = 300000; // 5 minutes
+const SEED_COUNT = 20;
 
-// ✅ Auto-switch backend URL based on environment
+// ✅ Always use Render backend in production
 const API_BASE =
-  process.env.REACT_APP_API_BASE ||
-  (process.env.NODE_ENV === "production"
+  process.env.NODE_ENV === "production"
     ? "https://iot-dashboard-y27r.onrender.com"
-    : "http://localhost:5000");
+    : "http://localhost:5000";
 
 const makeReading = (dateObj) => ({
   id: dateObj.getTime(),
@@ -28,10 +25,9 @@ export const startSensorSimulation = () => {
 
   const { addSensorData } = useSensorStore.getState();
 
-  // ✅ Seed 20 readings only once (past 95 minutes → now, step 5 min)
+  // Seed 20 readings once
   if (!seeded) {
     seeded = true;
-
     const now = new Date();
     for (let i = SEED_COUNT - 1; i >= 0; i--) {
       const dt = new Date(now.getTime() - i * INTERVAL_MS);
@@ -39,33 +35,37 @@ export const startSensorSimulation = () => {
     }
   }
 
-  const tick = () => {
+  const tick = async () => {
     const now = new Date();
     const data = makeReading(now);
-
-    // 1) store reading
     addSensorData(data);
 
-    // 2) thresholds
     const breach =
       data.temperature > 30 || data.humidity > 70 || data.pressure > 1020;
 
     const alertsEnabled = useSensorStore.getState().alertsEnabled;
 
-    // 3) send email alert (cooldown)
-    const nowMs = Date.now();
-    if (alertsEnabled && breach && nowMs - lastAlertAt >= ALERT_COOLDOWN_MS) {
-      lastAlertAt = nowMs;
+    // ✅ Always POST on breach (backend decides email cooldown + logs history)
+    if (alertsEnabled && breach) {
+      try {
+        const res = await fetch(`${API_BASE}/api/alerts/email`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...data,
+            clientTimeISO: now.toISOString(), // ✅ store real reading time
+          }),
+        });
 
-      fetch(`${API_BASE}/api/alerts/email`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      }).catch(() => {});
+        // optional debug
+        // const json = await res.json();
+        // console.log("Alert API:", json);
+      } catch (e) {
+        console.error("Alert POST failed:", e);
+      }
     }
   };
 
-  // ✅ Real interval: exactly 5 minutes
   intervalId = setInterval(tick, INTERVAL_MS);
 
   return () => {
