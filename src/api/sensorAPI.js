@@ -48,7 +48,7 @@ export const startSensorSimulation = () => {
     // ✅ Always POST on breach (backend decides email cooldown + logs history)
     if (alertsEnabled && breach) {
       try {
-        const res = await fetch(`${API_BASE}/api/alerts/email`, {
+        const res = await fetch("https://iot-dashboard-y27r.onrender.com/api/alerts/email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

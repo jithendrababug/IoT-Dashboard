@@ -161,7 +161,7 @@ export default function AlertHistory() {
             ) : (
               pageData.map((a) => (
                 <tr key={a.id} style={{ borderBottom: "1px solid #e5e7eb" }}>
-                  <td style={tdStyle}>{a.created_at}</td>
+                  <td style={tdStyle}>{a.created_at ? new Date(a.created_at).toLocaleString() : ""}</td>
                   <td style={tdStyle}>
                     <span style={badgeStyle(a.severity)}>{a.severity}</span>
                   </td>
