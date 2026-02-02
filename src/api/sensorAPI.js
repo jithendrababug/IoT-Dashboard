@@ -6,11 +6,12 @@ let seeded = false;
 const INTERVAL_MS = 300000; // 5 minutes
 const SEED_COUNT = 20;
 
-// ✅ Always use Render backend in production
+// ✅ Use env override if provided, else fallback by NODE_ENV
 const API_BASE =
-  process.env.NODE_ENV === "production"
+  process.env.REACT_APP_API_BASE ||
+  (process.env.NODE_ENV === "production"
     ? "https://iot-dashboard-y27r.onrender.com"
-    : "http://localhost:5000";
+    : "http://localhost:5000");
 
 const makeReading = (dateObj) => ({
   id: dateObj.getTime(),
@@ -25,9 +26,10 @@ export const startSensorSimulation = () => {
 
   const { addSensorData } = useSensorStore.getState();
 
-  // Seed 20 readings once
+  // ✅ Seed 20 readings once (no alerts triggered for seed)
   if (!seeded) {
     seeded = true;
+
     const now = new Date();
     for (let i = SEED_COUNT - 1; i >= 0; i--) {
       const dt = new Date(now.getTime() - i * INTERVAL_MS);
@@ -37,6 +39,7 @@ export const startSensorSimulation = () => {
 
   const tick = async () => {
     const now = new Date();
+
     const data = makeReading(now);
     addSensorData(data);
 
@@ -45,27 +48,24 @@ export const startSensorSimulation = () => {
 
     const alertsEnabled = useSensorStore.getState().alertsEnabled;
 
-    // ✅ Always POST on breach (backend decides email cooldown + logs history)
+    // ✅ Always POST on breach (backend decides cooldown + stores history)
     if (alertsEnabled && breach) {
       try {
-        const res = await fetch("https://iot-dashboard-y27r.onrender.com/api/alerts/email", {
+        await fetch(`${API_BASE}/api/alerts/email`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...data,
-            clientTimeISO: now.toISOString(), // ✅ store real reading time
+            clientTimeISO: now.toISOString(), // ✅ send true reading time
           }),
         });
-
-        // optional debug
-        // const json = await res.json();
-        // console.log("Alert API:", json);
       } catch (e) {
         console.error("Alert POST failed:", e);
       }
     }
   };
 
+  // ✅ exactly 5 minutes
   intervalId = setInterval(tick, INTERVAL_MS);
 
   return () => {
