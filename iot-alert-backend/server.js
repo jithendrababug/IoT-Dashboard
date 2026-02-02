@@ -10,17 +10,14 @@ const app = express();
 
 app.use(
   cors({
-    origin: [
-      "http://localhost:3000",
-      "https://jithendrababug.github.io",
-    ],
+    origin: ["http://localhost:3000", "https://jithendrababug.github.io"],
     methods: ["GET", "POST"],
   })
 );
 
 app.use(express.json());
 
-const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+const COOLDOWN_MS = 5 * 60 * 1000;
 let lastSentAt = 0;
 
 const transporter = nodemailer.createTransport({
@@ -42,6 +39,7 @@ function getSeverityAndTriggers({ temperature, humidity, pressure }) {
   return { triggers, severity, message };
 }
 
+// ✅ alert endpoint: store ONCE per reading_id, ISO only
 app.post("/api/alerts/email", async (req, res) => {
   try {
     const { temperature, humidity, pressure, clientTimeISO, readingId } = req.body;
@@ -60,17 +58,24 @@ app.post("/api/alerts/email", async (req, res) => {
       return res.json({ ok: true, stored: false, sent: false, reason: "No threshold breached" });
     }
 
-    // ✅ ISO only
+    // ✅ ISO (UTC) stored in DB
     const createdAtISO = clientTimeISO || new Date().toISOString();
 
-    // ✅ Store once (ignore duplicates using reading_id UNIQUE)
+    // ✅ reading_id must be NOT NULL (critical!)
+    // If frontend didn't send readingId for some reason, derive a stable one:
+    const safeReadingId =
+      (readingId != null ? String(readingId) : null) ||
+      `${createdAtISO}|${temperature}|${humidity}|${pressure}|${message}`;
+
+    // ✅ Insert once, ignore duplicates
     const insert = db.prepare(`
-      INSERT OR IGNORE INTO alerts (reading_id, created_at, severity, temperature, humidity, pressure, message)
+      INSERT OR IGNORE INTO alerts
+      (reading_id, created_at, severity, temperature, humidity, pressure, message)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
     const info = insert.run(
-      readingId ?? null,
+      safeReadingId,
       createdAtISO,
       severity,
       temperature,
@@ -79,12 +84,12 @@ app.post("/api/alerts/email", async (req, res) => {
       message
     );
 
-    // If this exact reading was already stored, don't send email again
+    // If duplicate, stop here (also prevents duplicate emails)
     if (info.changes === 0) {
-      return res.json({ ok: true, stored: false, sent: false, reason: "Duplicate reading ignored" });
+      return res.json({ ok: true, stored: false, sent: false, reason: "Duplicate ignored" });
     }
 
-    // ✅ Cooldown only affects EMAIL sending
+    // ✅ Cooldown affects only EMAIL, not DB history
     const nowMs = Date.now();
     if (nowMs - lastSentAt < COOLDOWN_MS) {
       return res.json({ ok: true, stored: true, sent: false, reason: "Cooldown active", severity });
@@ -114,10 +119,11 @@ app.post("/api/alerts/email", async (req, res) => {
   }
 });
 
+// ✅ history: returns ISO strings 그대로
 app.get("/api/alerts/history", (req, res) => {
   try {
     const rows = db.prepare("SELECT * FROM alerts ORDER BY id DESC LIMIT 100").all();
-    res.json({ ok: true, alerts: rows }); // ✅ created_at stays ISO
+    res.json({ ok: true, alerts: rows });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

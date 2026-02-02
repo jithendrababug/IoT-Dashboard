@@ -51,7 +51,7 @@ export const startSensorSimulation = () => {
     // ✅ Always POST on breach (backend decides cooldown + stores history)
     if (alertsEnabled && breach) {
       try {
-        await fetch(`${API_BASE}/api/alerts/email`, {
+        const res = await fetch(`${API_BASE}/api/alerts/email`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

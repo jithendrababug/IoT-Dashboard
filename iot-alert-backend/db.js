@@ -2,11 +2,11 @@ import Database from "better-sqlite3";
 
 const db = new Database("alerts.db");
 
-// Create table if not exists
+// 1) Ensure schema exists
 db.exec(`
   CREATE TABLE IF NOT EXISTS alerts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    reading_id INTEGER UNIQUE,
+    reading_id TEXT NOT NULL,
     created_at TEXT NOT NULL,
     severity TEXT NOT NULL,
     temperature REAL NOT NULL,
@@ -16,18 +16,21 @@ db.exec(`
   );
 `);
 
-// If an old table exists without reading_id, add it safely
-try {
-  db.exec(`ALTER TABLE alerts ADD COLUMN reading_id INTEGER;`);
-} catch (e) {
-  // ignore if column already exists
-}
+// 2) Make reading_id truly unique (NOT NULL + UNIQUE index)
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_reading_id
+  ON alerts(reading_id);
+`);
 
-// Ensure unique index exists (safe if already exists)
-try {
-  db.exec(`CREATE UNIQUE INDEX idx_alerts_reading_id ON alerts(reading_id);`);
-} catch (e) {
-  // ignore if already exists
-}
+// 3) One-time cleanup: remove existing duplicates
+// Keep the latest row for each reading_id
+db.exec(`
+  DELETE FROM alerts
+  WHERE id NOT IN (
+    SELECT MAX(id)
+    FROM alerts
+    GROUP BY reading_id
+  );
+`);
 
 export default db;
