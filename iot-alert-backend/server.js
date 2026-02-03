@@ -10,14 +10,19 @@ const app = express();
 
 app.use(
   cors({
-    origin: ["http://localhost:3000", "https://jithendrababug.github.io"],
+    origin: [
+      "http://localhost:3000",
+      "http://localhost:3000/IoT-Dashboard",
+      "https://jithendrababug.github.io",
+      "https://jithendrababug.github.io/IoT-Dashboard",
+    ],
     methods: ["GET", "POST"],
   })
 );
 
 app.use(express.json());
 
-const COOLDOWN_MS = 5 * 60 * 1000;
+const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 let lastSentAt = 0;
 
 const transporter = nodemailer.createTransport({
@@ -25,6 +30,7 @@ const transporter = nodemailer.createTransport({
   auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
 });
 
+// Helper: severity + message builder
 function getSeverityAndTriggers({ temperature, humidity, pressure }) {
   const triggers = [];
 
@@ -39,13 +45,16 @@ function getSeverityAndTriggers({ temperature, humidity, pressure }) {
   return { triggers, severity, message };
 }
 
-// ✅ alert endpoint: store ONCE per reading_id, ISO only
+// ✅ Send alert + store in DB
 app.post("/api/alerts/email", async (req, res) => {
   try {
     const { temperature, humidity, pressure, clientTimeISO, readingId } = req.body;
 
     if (temperature == null || humidity == null || pressure == null) {
-      return res.status(400).json({ ok: false, error: "Missing sensor values" });
+      return res.status(400).json({
+        ok: false,
+        error: "Missing sensor values (temperature, humidity, pressure)",
+      });
     }
 
     const { triggers, severity, message } = getSeverityAndTriggers({
@@ -54,55 +63,52 @@ app.post("/api/alerts/email", async (req, res) => {
       pressure,
     });
 
+    // Only store/send if threshold breached
     if (triggers.length === 0) {
-      return res.json({ ok: true, stored: false, sent: false, reason: "No threshold breached" });
+      return res.json({ ok: true, sent: false, reason: "No threshold breached" });
     }
 
-    // ✅ ISO (UTC) stored in DB
-    const createdAtISO = clientTimeISO || new Date().toISOString();
+    // ✅ Always store ISO time (exact reading time)
+    const createdAtISO =
+      typeof clientTimeISO === "string" && !Number.isNaN(Date.parse(clientTimeISO))
+        ? new Date(clientTimeISO).toISOString()
+        : new Date().toISOString();
 
-    // ✅ reading_id must be NOT NULL (critical!)
-    // If frontend didn't send readingId for some reason, derive a stable one:
+    // ✅ Prevent duplicates (same alert inserted twice)
     const safeReadingId =
-      (readingId != null ? String(readingId) : null) ||
-      `${createdAtISO}|${temperature}|${humidity}|${pressure}|${message}`;
+      readingId != null ? String(readingId) : `${createdAtISO}|${temperature}|${humidity}|${pressure}|${message}`;
 
-    // ✅ Insert once, ignore duplicates
-    const insert = db.prepare(`
-      INSERT OR IGNORE INTO alerts
-      (reading_id, created_at, severity, temperature, humidity, pressure, message)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
+    const existing = db
+      .prepare(`SELECT id FROM alerts WHERE reading_id = ? LIMIT 1`)
+      .get(safeReadingId);
 
-    const info = insert.run(
-      safeReadingId,
-      createdAtISO,
-      severity,
-      temperature,
-      humidity,
-      pressure,
-      message
-    );
-
-    // If duplicate, stop here (also prevents duplicate emails)
-    if (info.changes === 0) {
-      return res.json({ ok: true, stored: false, sent: false, reason: "Duplicate ignored" });
+    if (!existing) {
+      db.prepare(
+        `INSERT INTO alerts (created_at, reading_id, severity, temperature, humidity, pressure, message)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(createdAtISO, safeReadingId, severity, temperature, humidity, pressure, message);
     }
 
-    // ✅ Cooldown affects only EMAIL, not DB history
+
+    // ✅ Cooldown affects only EMAIL (not history logging)
     const nowMs = Date.now();
     if (nowMs - lastSentAt < COOLDOWN_MS) {
-      return res.json({ ok: true, stored: true, sent: false, reason: "Cooldown active", severity });
+      return res.json({ ok: true, sent: false, reason: "Cooldown active", severity });
     }
 
-    const subject = `🚨 [${severity}] IoT Alert (${createdAtISO})`;
+    // Email display time can be human-friendly
+    const displayTime = new Date(createdAtISO).toLocaleString();
+
+    const subject = `🚨 [${severity}] IoT Alert (${displayTime})`;
     const text =
       `🚨 IoT Dashboard Alert\n\n` +
       `Severity: ${severity}\n` +
-      `Date & Time (ISO): ${createdAtISO}\n\n` +
+      `Date & Time: ${displayTime}\n\n` +
       `Triggered Conditions:\n- ${triggers.join("\n- ")}\n\n` +
       `Current Readings:\n` +
-      `Temperature: ${temperature}°C\nHumidity: ${humidity}%\nPressure: ${pressure} hPa\n`;
+      `Temperature: ${temperature}°C\n` +
+      `Humidity: ${humidity}%\n` +
+      `Pressure: ${pressure} hPa\n`;
 
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
@@ -112,14 +118,16 @@ app.post("/api/alerts/email", async (req, res) => {
     });
 
     lastSentAt = nowMs;
-    return res.json({ ok: true, stored: true, sent: true, severity });
+
+    return res.json({ ok: true, sent: true, severity, created_at: createdAtISO });
   } catch (err) {
     console.error("❌ Email alert error:", err);
     return res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-// ✅ history: returns ISO strings 그대로
+// ✅ Fetch alert history (latest first)
+// ISO strings sort correctly, but we still order by id DESC
 app.get("/api/alerts/history", (req, res) => {
   try {
     const rows = db.prepare("SELECT * FROM alerts ORDER BY id DESC LIMIT 100").all();

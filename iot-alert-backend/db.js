@@ -1,13 +1,18 @@
+// File: iot-dashboard/iot-alert-backend/db.js
 import Database from "better-sqlite3";
 
+// Creates/opens alerts.db in this same folder
 const db = new Database("alerts.db");
 
-// 1) Ensure schema exists
+// Better reliability for reads + writes
+db.pragma("journal_mode = WAL");
+
+// 1) Ensure table exists with the LATEST schema
 db.exec(`
   CREATE TABLE IF NOT EXISTS alerts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    reading_id TEXT NOT NULL,
-    created_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,          -- store ISO string
+    reading_id TEXT,                   -- used to deduplicate alerts per reading
     severity TEXT NOT NULL,
     temperature REAL NOT NULL,
     humidity REAL NOT NULL,
@@ -16,21 +21,15 @@ db.exec(`
   );
 `);
 
-// 2) Make reading_id truly unique (NOT NULL + UNIQUE index)
-db.exec(`
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_reading_id
-  ON alerts(reading_id);
-`);
+// 2) MIGRATION: if an older DB exists, add missing columns safely
+const cols = db.prepare("PRAGMA table_info(alerts);").all().map((c) => c.name);
 
-// 3) One-time cleanup: remove existing duplicates
-// Keep the latest row for each reading_id
-db.exec(`
-  DELETE FROM alerts
-  WHERE id NOT IN (
-    SELECT MAX(id)
-    FROM alerts
-    GROUP BY reading_id
-  );
-`);
+if (!cols.includes("reading_id")) {
+  db.exec(`ALTER TABLE alerts ADD COLUMN reading_id TEXT;`);
+}
+
+// 3) Indexes (non-unique = won’t crash even if older DB has duplicates)
+db.exec(`CREATE INDEX IF NOT EXISTS idx_alerts_reading_id ON alerts(reading_id);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON alerts(created_at);`);
 
 export default db;

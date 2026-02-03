@@ -161,7 +161,15 @@ export default function AlertHistory() {
             ) : (
               pageData.map((a) => (
                 <tr key={a.id} style={{ borderBottom: "1px solid #e5e7eb" }}>
-                  <td style={tdStyle}>{a.created_at ? new Date(a.created_at).toLocaleString() : ""}</td>
+                  <td style={tdStyle}>
+                    {a.created_at
+                      ? new Date(a.created_at).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          hour12: true,
+                        })
+                      : ""}
+                  </td>
                   <td style={tdStyle}>
                     <span style={badgeStyle(a.severity)}>{a.severity}</span>
                   </td>
