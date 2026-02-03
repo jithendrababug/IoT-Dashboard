@@ -44,7 +44,7 @@ const SensorTable = () => {
         }}>
             <thead>
                 <tr style={{ backgroundColor: '#f3f4f6', color: '#374151', fontWeight: '600' }}>
-                    <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'center' }}>Time</th>
+                    <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'center' }}>Date & Time</th>
                     <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'center' }}>Temperature (°C)</th>
                     <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'center' }}>Humidity (%)</th>
                     <th style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'center' }}>Pressure (hPa)</th>
