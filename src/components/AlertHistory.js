@@ -43,8 +43,18 @@ export default function AlertHistory() {
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Failed to fetch alert history");
 
-      setAlerts(Array.isArray(json.alerts) ? json.alerts : []);
+      const list = Array.isArray(json.alerts) ? json.alerts : [];
+
+      // ✅ FORCE descending order by created_at (ISO-safe)
+      list.sort((a, b) => {
+        const ta = Date.parse(a.created_at || "") || 0;
+        const tb = Date.parse(b.created_at || "") || 0;
+        return tb - ta; // DESC
+      });
+
+      setAlerts(list);
       setPage(1);
+
     } catch (e) {
       setError(e.message || "Error fetching alerts");
     } finally {
@@ -176,14 +186,14 @@ export default function AlertHistory() {
           </thead>
 
           <tbody>
-            {pageData.length === 0 ? (
+            {alerts.length === 0 ? (
               <tr>
                 <td colSpan={6} style={{ padding: 18, color: "#6b7280", textAlign: "center" }}>
                   {loading ? "Loading alerts..." : "No alerts recorded yet."}
                 </td>
               </tr>
             ) : (
-              pageData.map((a) => (
+              alerts.map((a) => (
                 <tr key={a.id} style={{ borderBottom: "1px solid #e5e7eb" }}>
                   <td style={tdStyle}>{formatDateTime(a.created_at)}</td>
                   <td style={tdStyle}>
@@ -198,26 +208,6 @@ export default function AlertHistory() {
             )}
           </tbody>
         </table>
-      </div>
-
-      <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 14 }}>
-        <button
-          style={btnStyle}
-          onClick={() => setPage((p) => Math.max(1, p - 1))}
-          disabled={page <= 1}
-        >
-          Prev
-        </button>
-        <div style={{ alignSelf: "center", fontWeight: 700, color: "#374151" }}>
-          Page {page} / {totalPages}
-        </div>
-        <button
-          style={btnStyle}
-          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-          disabled={page >= totalPages}
-        >
-          Next
-        </button>
       </div>
     </div>
   );

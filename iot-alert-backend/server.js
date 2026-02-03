@@ -122,9 +122,9 @@ app.post("/api/alerts/email", async (req, res) => {
   }
 });
 
-app.get("/api/alerts/history", (req, res) => {
+app.get("/api/alerts/history", (toggleReq, res) => {
   try {
-    const rows = db.prepare("SELECT * FROM alerts ORDER BY created_at DESC LIMIT 100").all();
+    const rows = db.prepare("SELECT * FROM alerts ORDER BY created_at DESC LIMIT 10").all();
     res.json({ ok: true, alerts: rows });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });

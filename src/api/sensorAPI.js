@@ -15,19 +15,46 @@ function floorTo5Minutes(date) {
   return d;
 }
 
-function makeReading(dateObj) {
-  const timeISO = dateObj.toISOString();
-
-  return {
-    id: dateObj.getTime(),     // ✅ stable unique id
-    readingId: String(dateObj.getTime()), // ✅ send to backend for dedupe
-    timeISO,
-    time: dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    temperature: Number((20 + Math.random() * 10).toFixed(1)),
-    humidity: Number((40 + Math.random() * 20).toFixed(1)),
-    pressure: Number((1000 + Math.random() * 50).toFixed(1)),
+// ✅ deterministic PRNG from a seed (Mulberry32)
+function mulberry32(seed) {
+  let t = seed >>> 0;
+  return function () {
+    t += 0x6d2b79f5;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+// ✅ make a numeric seed from readingId (timestamp)
+function seedFromReadingId(readingId) {
+  // readingId is like "1700000000000" → use lower 32 bits
+  const n = Number(readingId);
+  return Number.isFinite(n) ? (n & 0xffffffff) : 123456789;
+}
+
+// ✅ Create a reading using exact time (no random seconds) + stable values
+function makeReading(dateObj) {
+  const timeISO = dateObj.toISOString();
+  const readingId = String(dateObj.getTime());
+
+  const rand = mulberry32(seedFromReadingId(readingId));
+
+  const temperature = Number((20 + rand() * 10).toFixed(1));  // 20–30
+  const humidity = Number((40 + rand() * 20).toFixed(1));     // 40–60
+  const pressure = Number((1000 + rand() * 50).toFixed(1));   // 1000–1050
+
+  return {
+    id: dateObj.getTime(),
+    readingId,       // ✅ stable unique id
+    timeISO,
+    time: dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    temperature,
+    humidity,
+    pressure,
+  };
+}
+
 
 const API_BASE =
   process.env.NODE_ENV === "production"
