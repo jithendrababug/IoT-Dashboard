@@ -79,6 +79,7 @@ export const startSensorSimulation = () => {
             readingId: data.readingId,   // ✅ used by backend to avoid duplicates
           }),
         });
+        window.dispatchEvent(new Event("alerts-updated"));
       } catch (e) {
         console.error("Alert POST failed:", e);
       }

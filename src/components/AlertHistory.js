@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 
 const PAGE_SIZE = 10;
+const AUTO_REFRESH_MS = 15000; // ✅ 15 sec auto refresh (change if needed)
 
-// ✅ Auto-switch backend URL based on environment
+// ✅ API base
 const API_BASE =
   process.env.REACT_APP_API_BASE ||
   (process.env.NODE_ENV === "production"
@@ -15,7 +16,7 @@ export default function AlertHistory() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const fetchAlerts = async () => {
+  const fetchAlerts = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
@@ -25,25 +26,34 @@ export default function AlertHistory() {
         headers: { "Content-Type": "application/json" },
       });
 
-      if (!res.ok) {
-        throw new Error(`Request failed (${res.status})`);
-      }
-
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Failed to fetch alert history");
 
       setAlerts(Array.isArray(json.alerts) ? json.alerts : []);
       setPage(1);
     } catch (e) {
-      setError(e?.message || "Error fetching alerts");
+      setError(e.message || "Error fetching alerts");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
+  // ✅ 1) initial load + polling + event-based refresh
   useEffect(() => {
     fetchAlerts();
-  }, []);
+
+    // Backup polling (every 15 sec)
+    const id = setInterval(fetchAlerts, AUTO_REFRESH_MS);
+
+    // Instant refresh when sensorAPI says "new alert inserted"
+    const onUpdated = () => fetchAlerts();
+    window.addEventListener("alerts-updated", onUpdated);
+
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("alerts-updated", onUpdated);
+    };
+  }, [fetchAlerts]);
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(alerts.length / PAGE_SIZE)),
@@ -52,7 +62,7 @@ export default function AlertHistory() {
 
   const pageData = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
-    return alerts.slice(start, start + PAGE_SIZE); // backend returns DESC
+    return alerts.slice(start, start + PAGE_SIZE);
   }, [alerts, page]);
 
   const downloadCSV = () => {
@@ -96,7 +106,7 @@ export default function AlertHistory() {
     };
 
     if (sev === "CRITICAL") return { ...base, background: "#fee2e2", color: "#991b1b" };
-    return { ...base, background: "#ffedd5", color: "#9a3412" }; // WARNING default
+    return { ...base, background: "#ffedd5", color: "#9a3412" };
   };
 
   return (
@@ -161,15 +171,7 @@ export default function AlertHistory() {
             ) : (
               pageData.map((a) => (
                 <tr key={a.id} style={{ borderBottom: "1px solid #e5e7eb" }}>
-                  <td style={tdStyle}>
-                    {a.created_at
-                      ? new Date(a.created_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          hour12: true,
-                        })
-                      : ""}
-                  </td>
+                  <td style={tdStyle}>{a.created_at}</td>
                   <td style={tdStyle}>
                     <span style={badgeStyle(a.severity)}>{a.severity}</span>
                   </td>
@@ -207,20 +209,8 @@ export default function AlertHistory() {
   );
 }
 
-const thStyle = {
-  padding: "12px 10px",
-  fontSize: 13,
-  color: "#111827",
-  fontWeight: 800,
-};
-
-const tdStyle = {
-  padding: "12px 10px",
-  fontSize: 13,
-  color: "#111827",
-  textAlign: "center",
-};
-
+const thStyle = { padding: "12px 10px", fontSize: 13, color: "#111827", fontWeight: 800 };
+const tdStyle = { padding: "12px 10px", fontSize: 13, color: "#111827", textAlign: "center" };
 const btnStyle = {
   padding: "10px 14px",
   borderRadius: 12,
