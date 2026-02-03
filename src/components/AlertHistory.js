@@ -10,6 +10,20 @@ const API_BASE =
     ? "https://iot-dashboard-y27r.onrender.com"
     : "http://localhost:5000");
 
+function formatDateTime(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString([], {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 export default function AlertHistory() {
   const [alerts, setAlerts] = useState([]);
   const [page, setPage] = useState(1);
@@ -171,7 +185,7 @@ export default function AlertHistory() {
             ) : (
               pageData.map((a) => (
                 <tr key={a.id} style={{ borderBottom: "1px solid #e5e7eb" }}>
-                  <td style={tdStyle}>{a.created_at}</td>
+                  <td style={tdStyle}>{formatDateTime(a.created_at)}</td>
                   <td style={tdStyle}>
                     <span style={badgeStyle(a.severity)}>{a.severity}</span>
                   </td>
