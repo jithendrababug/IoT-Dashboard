@@ -83,6 +83,38 @@ export default function AlertHistory() {
     if (sev === "CRITICAL") return { ...base, background: "#fee2e2", color: "#991b1b" };
     return { ...base, background: "#ffedd5", color: "#9a3412" };
   };
+  const downloadCSV = (rows) => {
+    if (!rows || !rows.length) return;
+
+    const headers = ["created_at", "severity", "temperature", "humidity", "pressure", "message"];
+
+    const escape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+
+    const csv =
+      [headers.join(","), ...rows.map((a) =>
+        [
+          a.created_at,
+          a.severity,
+          a.temperature,
+          a.humidity,
+          a.pressure,
+          a.message,
+        ].map(escape).join(",")
+      )].join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `alert_history_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    URL.revokeObjectURL(url);
+  };
+
 
   return (
     <div
@@ -106,9 +138,12 @@ export default function AlertHistory() {
         }}
       >
         <h2 style={{ margin: 0, fontSize: 18, color: "#111827" }}>Alert History</h2>
-
-        <button onClick={fetchAlerts} style={btnStyle}>
-          Refresh
+        <button
+          onClick={() => downloadCSV(alerts)}
+          style={btnStyle}
+          disabled={!alerts.length}
+        >
+          Export CSV
         </button>
       </div>
 
