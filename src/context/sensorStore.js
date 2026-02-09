@@ -7,16 +7,18 @@ export const useSensorStore = create((set) => ({
   alertsEnabled: true,
   setAlertsEnabled: (value) => set({ alertsEnabled: value }),
 
+  resetAt: null,
+
   addSensorData: (data) =>
     set((state) => ({
       sensors: [...state.sensors, data].slice(-20),
       latest: data,
     })),
 
-  // ✅ used by Reset
-  clearSensors: () =>
+  resetSensors: () =>
     set({
       sensors: [],
       latest: { temperature: "-", humidity: "-", pressure: "-" },
+      resetAt: new Date().toISOString(),
     }),
 }));
