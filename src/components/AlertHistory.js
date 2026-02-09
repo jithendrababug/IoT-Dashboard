@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 
 const PAGE_SIZE = 10;
-const AUTO_REFRESH_MS = 15000; // ✅ 15 sec auto refresh (change if needed)
+const AUTO_REFRESH_MS = 5000; // ✅ 5 sec is enough (because readings come every 5 mins)
 
 // ✅ API base
 const API_BASE =
@@ -21,12 +21,12 @@ function formatDateTime(value) {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
+    hour12: true,
   });
 }
 
 export default function AlertHistory() {
   const [alerts, setAlerts] = useState([]);
-  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -43,18 +43,19 @@ export default function AlertHistory() {
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Failed to fetch alert history");
 
-      const list = Array.isArray(json.alerts) ? json.alerts : [];
+      let list = Array.isArray(json.alerts) ? json.alerts : [];
 
-      // ✅ FORCE descending order by created_at (ISO-safe)
+      // ✅ descending order by created_at
       list.sort((a, b) => {
         const ta = Date.parse(a.created_at || "") || 0;
         const tb = Date.parse(b.created_at || "") || 0;
-        return tb - ta; // DESC
+        return tb - ta;
       });
 
-      setAlerts(list);
-      setPage(1);
+      // ✅ ONLY latest 10 alerts => ONE PAGE ONLY
+      list = list.slice(0, PAGE_SIZE);
 
+      setAlerts(list);
     } catch (e) {
       setError(e.message || "Error fetching alerts");
     } finally {
@@ -62,14 +63,12 @@ export default function AlertHistory() {
     }
   }, []);
 
-  // ✅ 1) initial load + polling + event-based refresh
+  // ✅ initial load + polling + event refresh
   useEffect(() => {
     fetchAlerts();
 
-    // Backup polling (every 15 sec)
     const id = setInterval(fetchAlerts, AUTO_REFRESH_MS);
 
-    // Instant refresh when sensorAPI says "new alert inserted"
     const onUpdated = () => fetchAlerts();
     window.addEventListener("alerts-updated", onUpdated);
 
@@ -78,16 +77,6 @@ export default function AlertHistory() {
       window.removeEventListener("alerts-updated", onUpdated);
     };
   }, [fetchAlerts]);
-
-  const totalPages = useMemo(
-    () => Math.max(1, Math.ceil(alerts.length / PAGE_SIZE)),
-    [alerts.length]
-  );
-
-  const pageData = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
-    return alerts.slice(start, start + PAGE_SIZE);
-  }, [alerts, page]);
 
   const downloadCSV = () => {
     if (!alerts.length) return;
@@ -116,6 +105,13 @@ export default function AlertHistory() {
     document.body.removeChild(link);
 
     URL.revokeObjectURL(url);
+  };
+
+  const onReset = async () => {
+    // ✅ "reset alerts" means: show only latest alerts from NOW onward.
+    // Frontend-only reset: clears current table immediately and it will fill as new alerts come.
+    setAlerts([]);
+    setError("");
   };
 
   const badgeStyle = (sev) => {
@@ -157,8 +153,8 @@ export default function AlertHistory() {
         <h2 style={{ margin: 0, fontSize: 18, color: "#111827" }}>Alert History</h2>
 
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={fetchAlerts} style={btnStyle}>
-            {loading ? "Refreshing..." : "Refresh"}
+          <button onClick={onReset} style={btnStyle}>
+            Reset
           </button>
           <button onClick={downloadCSV} style={btnStyle} disabled={!alerts.length}>
             Export CSV
@@ -209,6 +205,8 @@ export default function AlertHistory() {
           </tbody>
         </table>
       </div>
+
+      {/* ✅ ONE PAGE ONLY: no pagination UI */}
     </div>
   );
 }

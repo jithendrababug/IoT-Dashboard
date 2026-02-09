@@ -12,4 +12,11 @@ export const useSensorStore = create((set) => ({
       sensors: [...state.sensors, data].slice(-20),
       latest: data,
     })),
+
+  // ✅ ADD THIS: used for RESET button
+  clearSensorData: () =>
+    set({
+      sensors: [],
+      latest: { temperature: "-", humidity: "-", pressure: "-" },
+    }),
 }));
