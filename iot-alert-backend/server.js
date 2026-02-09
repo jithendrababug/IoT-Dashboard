@@ -87,12 +87,24 @@ app.post("/api/alerts/email", async (req, res) => {
     const wantsEmail = !!sendEmail;
 
     if (!wantsEmail) {
-      return res.json({ ok: true, stored: true, sent: false, reason: "Email disabled", created_at: createdAtISO });
+      return res.json({
+        ok: true,
+        stored: true,
+        sent: false,
+        reason: "Email disabled",
+        created_at: createdAtISO,
+      });
     }
 
     const nowMs = Date.now();
     if (nowMs - lastSentAt < COOLDOWN_MS) {
-      return res.json({ ok: true, stored: true, sent: false, reason: "Cooldown active", created_at: createdAtISO });
+      return res.json({
+        ok: true,
+        stored: true,
+        sent: false,
+        reason: "Cooldown active",
+        created_at: createdAtISO,
+      });
     }
 
     const displayTime = new Date(createdAtISO).toLocaleString();
@@ -130,16 +142,6 @@ app.get("/api/alerts/history", (req, res) => {
       .all(limit);
 
     res.json({ ok: true, alerts: rows });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-// ✅ RESET endpoint: clears all alerts
-app.post("/api/alerts/reset", (req, res) => {
-  try {
-    db.prepare("DELETE FROM alerts").run();
-    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
