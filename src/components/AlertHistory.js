@@ -1,16 +1,12 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 
-const PAGE_SIZE = 10;
-const AUTO_REFRESH_MS = 5000; // ✅ 5 sec is enough (because readings come every 5 mins)
-
-// ✅ API base
 const API_BASE =
   process.env.REACT_APP_API_BASE ||
   (process.env.NODE_ENV === "production"
     ? "https://iot-dashboard-y27r.onrender.com"
     : "http://localhost:5000");
 
-function formatDateTime(value) {
+function formatDateTimeISO(value) {
   if (!value) return "";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return String(value);
@@ -21,7 +17,6 @@ function formatDateTime(value) {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    hour12: true,
   });
 }
 
@@ -35,26 +30,12 @@ export default function AlertHistory() {
       setLoading(true);
       setError("");
 
-      const res = await fetch(`${API_BASE}/api/alerts/history`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-      });
-
+      const res = await fetch(`${API_BASE}/api/alerts/history?limit=10`);
       const json = await res.json();
+
       if (!json.ok) throw new Error(json.error || "Failed to fetch alert history");
 
-      let list = Array.isArray(json.alerts) ? json.alerts : [];
-
-      // ✅ descending order by created_at
-      list.sort((a, b) => {
-        const ta = Date.parse(a.created_at || "") || 0;
-        const tb = Date.parse(b.created_at || "") || 0;
-        return tb - ta;
-      });
-
-      // ✅ ONLY latest 10 alerts => ONE PAGE ONLY
-      list = list.slice(0, PAGE_SIZE);
-
+      const list = Array.isArray(json.alerts) ? json.alerts : [];
       setAlerts(list);
     } catch (e) {
       setError(e.message || "Error fetching alerts");
@@ -63,55 +44,26 @@ export default function AlertHistory() {
     }
   }, []);
 
-  // ✅ initial load + polling + event refresh
   useEffect(() => {
     fetchAlerts();
-
-    const id = setInterval(fetchAlerts, AUTO_REFRESH_MS);
 
     const onUpdated = () => fetchAlerts();
     window.addEventListener("alerts-updated", onUpdated);
 
-    return () => {
-      clearInterval(id);
-      window.removeEventListener("alerts-updated", onUpdated);
-    };
+    return () => window.removeEventListener("alerts-updated", onUpdated);
   }, [fetchAlerts]);
 
-  const downloadCSV = () => {
-    if (!alerts.length) return;
-
-    const headers = ["created_at", "severity", "temperature", "humidity", "pressure", "message"];
-    const rows = alerts.map((a) => [
-      a.created_at ?? "",
-      a.severity ?? "",
-      a.temperature ?? "",
-      a.humidity ?? "",
-      a.pressure ?? "",
-      a.message ?? "",
-    ]);
-
-    const escape = (v) => `"${String(v).replace(/"/g, '""')}"`;
-    const csv = [headers.join(","), ...rows.map((r) => r.map(escape).join(","))].join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `alert_history_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    URL.revokeObjectURL(url);
-  };
-
   const onReset = async () => {
-    // ✅ "reset alerts" means: show only latest alerts from NOW onward.
-    // Frontend-only reset: clears current table immediately and it will fill as new alerts come.
-    setAlerts([]);
-    setError("");
+    try {
+      setLoading(true);
+      await fetch(`${API_BASE}/api/alerts/reset`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      await fetchAlerts();
+    } finally {
+      setLoading(false);
+    }
   };
 
   const badgeStyle = (sev) => {
@@ -156,9 +108,6 @@ export default function AlertHistory() {
           <button onClick={onReset} style={btnStyle}>
             Reset
           </button>
-          <button onClick={downloadCSV} style={btnStyle} disabled={!alerts.length}>
-            Export CSV
-          </button>
         </div>
       </div>
 
@@ -191,7 +140,7 @@ export default function AlertHistory() {
             ) : (
               alerts.map((a) => (
                 <tr key={a.id} style={{ borderBottom: "1px solid #e5e7eb" }}>
-                  <td style={tdStyle}>{formatDateTime(a.created_at)}</td>
+                  <td style={tdStyle}>{formatDateTimeISO(a.created_at)}</td>
                   <td style={tdStyle}>
                     <span style={badgeStyle(a.severity)}>{a.severity}</span>
                   </td>
@@ -205,8 +154,6 @@ export default function AlertHistory() {
           </tbody>
         </table>
       </div>
-
-      {/* ✅ ONE PAGE ONLY: no pagination UI */}
     </div>
   );
 }
