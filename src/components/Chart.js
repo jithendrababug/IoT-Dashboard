@@ -20,19 +20,14 @@ const SensorChart = () => {
     <ResponsiveContainer width="100%" height={400}>
       <LineChart
         data={sensors}
-        margin={{ top: 20, right: 20, left: 20, bottom: 20 }}  {/* 🔥 FIX */}
+        // ✅ Reduce right margin to remove the gap
+        margin={{ top: 20, right: 20, left: 20, bottom: 20 }}
       >
-        {/* X Axis */}
-        <XAxis
-          dataKey="time"
-          tick={{ fontSize: 12 }}
-          stroke="#6b7280"
-        />
+        <XAxis dataKey="time" stroke="#6b7280" tick={{ fontSize: 12 }} />
 
-        {/* Left Y Axis – Temperature */}
+        {/* Temperature axis (left) */}
         <YAxis
           yAxisId="left"
-          domain={[0, 40]}
           stroke="#6b7280"
           label={{
             value: "Temperature (°C)",
@@ -42,22 +37,19 @@ const SensorChart = () => {
           }}
         />
 
-        {/* Right Y Axis – Humidity */}
+        {/* Humidity + Pressure axis (right) */}
         <YAxis
           yAxisId="right"
           orientation="right"
-          domain={[0, 60]}
           stroke="#6b7280"
           label={{
             value: "Humidity (%)",
             angle: 90,
-            position: "insideRight",   // 🔥 FIX
-            offset: -5,               // 🔥 FIX
+            position: "insideRight",
+            offset: -5, // ✅ Pull label slightly inside to avoid extra reserved space
             fill: "#374151",
           }}
         />
-
-        <CartesianGrid stroke="#e5e7eb" strokeDasharray="5 5" />
 
         <Tooltip
           contentStyle={{
@@ -67,10 +59,9 @@ const SensorChart = () => {
             boxShadow: "0 6px 20px rgba(0,0,0,0.12)",
           }}
         />
-
         <Legend verticalAlign="top" height={36} />
+        <CartesianGrid stroke="#e5e7eb" strokeDasharray="5 5" />
 
-        {/* Temperature */}
         <Line
           yAxisId="left"
           type="monotone"
@@ -80,7 +71,6 @@ const SensorChart = () => {
           strokeWidth={2.5}
         />
 
-        {/* Humidity */}
         <Line
           yAxisId="right"
           type="monotone"
@@ -90,7 +80,7 @@ const SensorChart = () => {
           strokeWidth={2.5}
         />
 
-        {/* Pressure mapped to right axis (same scale area, no gap) */}
+        {/* ✅ Put pressure on the same right axis to prevent right-side gap */}
         <Line
           yAxisId="right"
           type="monotone"
