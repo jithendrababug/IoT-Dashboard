@@ -4,8 +4,36 @@ export const useSensorStore = create((set) => ({
   sensors: [],
   latest: { temperature: "-", humidity: "-", pressure: "-" },
 
-  alertsEnabled: true,
+  // ✅ Toggle state
+  alertsEnabled: false,
   setAlertsEnabled: (value) => set({ alertsEnabled: value }),
+
+  // ✅ Email alert config (UI only)
+  emailConfig: {
+    from: "",
+    pass: "",
+    receivers: [""], // default one receiver input
+  },
+
+  setEmailConfig: (partial) =>
+    set((state) => ({
+      emailConfig: { ...state.emailConfig, ...partial },
+    })),
+
+  setReceiverAt: (index, value) =>
+    set((state) => {
+      const next = [...state.emailConfig.receivers];
+      next[index] = value;
+      return { emailConfig: { ...state.emailConfig, receivers: next } };
+    }),
+
+  addReceiver: () =>
+    set((state) => ({
+      emailConfig: {
+        ...state.emailConfig,
+        receivers: [...state.emailConfig.receivers, ""],
+      },
+    })),
 
   addSensorData: (data) =>
     set((state) => ({
