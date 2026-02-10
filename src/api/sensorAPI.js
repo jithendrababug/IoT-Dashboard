@@ -13,6 +13,16 @@ const API_BASE =
     ? "https://iot-dashboard-y27r.onrender.com"
     : "http://localhost:5000");
 
+// ✅ IST offset in minutes (+05:30)
+const IST_OFFSET_MIN = 330;
+
+// ✅ Convert a Date -> ISO string in IST with +05:30
+// Example output: 2026-02-10T03:10:00.000+05:30
+function toISTISOString(date) {
+  const ist = new Date(date.getTime() + IST_OFFSET_MIN * 60 * 1000);
+  return ist.toISOString().replace("Z", "+05:30");
+}
+
 // ✅ Snap any time to the previous 5-min boundary (and set seconds=0)
 function floorTo5Minutes(date) {
   const d = new Date(date);
@@ -36,18 +46,23 @@ function mulberry32(seed) {
 // ✅ Create stable reading based on time
 function makeReading(dateObj) {
   const readingId = String(dateObj.getTime());
-  const timeISO = dateObj.toISOString();
+
+  // ✅ IMPORTANT FIX: store IST ISO (not UTC Z)
+  const timeISO = toISTISOString(dateObj);
+
   const rand = mulberry32(dateObj.getTime());
 
   return {
     id: dateObj.getTime(),
     readingId,
     timeISO,
+
     // UI label (time only) — keep as you had
     time: dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+
     temperature: Number((20 + rand() * 10).toFixed(1)), // 20–30
-    humidity: Number((40 + rand() * 20).toFixed(1)),    // 40–60
-    pressure: Number((1000 + rand() * 50).toFixed(1)),  // 1000–1050
+    humidity: Number((40 + rand() * 20).toFixed(1)), // 40–60
+    pressure: Number((1000 + rand() * 50).toFixed(1)), // 1000–1050
   };
 }
 
@@ -64,7 +79,6 @@ async function postWithRetry(url, body, tries = 3) {
         body: JSON.stringify(body),
       });
 
-      // If backend returns non-2xx, treat as failure
       if (!res.ok) {
         const txt = await res.text().catch(() => "");
         throw new Error(`HTTP ${res.status} ${txt}`);
@@ -78,7 +92,6 @@ async function postWithRetry(url, body, tries = 3) {
       return json;
     } catch (e) {
       lastErr = e;
-      // backoff: 500ms, 1500ms, 3000ms
       const delay = attempt === 1 ? 500 : attempt === 2 ? 1500 : 3000;
       await sleep(delay);
     }
@@ -88,7 +101,6 @@ async function postWithRetry(url, body, tries = 3) {
 }
 
 async function recordAlertIfBreach(reading) {
-  // breach check (same as backend thresholds)
   const breach =
     reading.temperature > 30 ||
     reading.humidity > 70 ||
@@ -98,17 +110,18 @@ async function recordAlertIfBreach(reading) {
 
   const alertsEnabled = useSensorStore.getState().alertsEnabled;
 
-  // ✅ Always store breached alerts; email depends on toggle
   const payload = {
     readingId: reading.readingId,
     temperature: reading.temperature,
     humidity: reading.humidity,
     pressure: reading.pressure,
+
+    // ✅ IMPORTANT FIX: send IST ISO to backend
     clientTimeISO: reading.timeISO,
+
     sendEmail: !!alertsEnabled,
   };
 
-  // ✅ Retry to avoid “sometimes missing”
   await postWithRetry(`${API_BASE}/api/alerts/email`, payload, 3);
 
   // ✅ Let AlertHistory refresh instantly
@@ -128,14 +141,16 @@ export const startSensorSimulation = () => {
   for (let i = SEED_COUNT - 1; i >= 0; i--) {
     const dt = new Date(alignedNow.getTime() - i * INTERVAL_MS);
     const r = makeReading(dt);
+
     store.addSensorData(r);
 
-    // ✅ Also store alert history for seeded readings (reliable + deduped by readingId UNIQUE)
-    recordAlertIfBreach(r).catch((e) => console.error("Seed alert store failed:", e));
+    recordAlertIfBreach(r).catch((e) =>
+      console.error("Seed alert store failed:", e)
+    );
   }
 
   const tick = async () => {
-    if (inFlight) return; // prevent overlap
+    if (inFlight) return;
     inFlight = true;
 
     try {
