@@ -31,7 +31,10 @@ function makeReading(date) {
   return {
     id: date.getTime(),
     readingId,
-    timeISO: date.toISOString(),
+    timeISO:
+      new Date(date.getTime() + 5.5 * 60 * 60 * 1000)
+        .toISOString()
+        .replace("Z", "+05:30"),
     time: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     temperature: Number((20 + rand() * 10).toFixed(1)),
     humidity: Number((40 + rand() * 20).toFixed(1)),
