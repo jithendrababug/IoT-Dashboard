@@ -69,8 +69,8 @@ app.post("/api/alerts/email", async (req, res) => {
     // Always store ISO time
     const createdAtISO =
       typeof clientTimeISO === "string" && !Number.isNaN(Date.parse(clientTimeISO))
-        ? new Date(clientTimeISO).toISOString()
-        : new Date().toISOString();
+        ? clientTimeISO
+        : new Date().toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" }).replace(" ", "T") + "+05:30";
 
     // ✅ Prevent duplicates permanently (reading_id UNIQUE)
     try {
