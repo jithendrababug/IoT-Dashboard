@@ -26,23 +26,28 @@ function loadEmailConfig() {
 
 const app = express();
 
-/* ✅ CORS FIX (IMPORTANT)
-   - Allow OPTIONS (preflight)
-   - Allow Content-Type header
-   - Note: origin never contains "/IoT-Dashboard" path, only host
+/* ✅ CORS FIX (Robust)
+   - origin is ONLY host, never includes "/IoT-Dashboard"
+   - allow localhost + github pages
+   - allow requests with no Origin (Render health checks, curl, server-to-server)
 */
+const allowedOrigins = new Set([
+  "http://localhost:3000",
+  "https://jithendrababug.github.io",
+]);
+
 const corsOptions = {
-  origin: [
-    "http://localhost:3000",
-    "https://jithendrababug.github.io",
-  ],
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true); // allow no-origin requests
+    if (allowedOrigins.has(origin)) return cb(null, true);
+    return cb(new Error(`CORS blocked for origin: ${origin}`), false);
+  },
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type"],
 };
 
 app.use(cors(corsOptions));
-app.options(/.*/, cors(corsOptions)); // ✅ handle preflight for all routes
-
+app.options(/.*/, cors(corsOptions)); // ✅ preflight for all routes (safe)
 app.use(express.json());
 
 const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
@@ -55,7 +60,7 @@ function toISTISOString(dateLike) {
   const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
   if (Number.isNaN(d.getTime())) return null;
 
-  const s = d.toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" }); // "YYYY-MM-DD HH:mm:ss"
+  const s = d.toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" });
   return s.replace(" ", "T") + "+05:30";
 }
 
@@ -83,7 +88,7 @@ function getSeverityAndTriggers({ temperature, humidity, pressure }) {
   return { triggers, severity, message };
 }
 
-/* ✅ GET config status (matches the URL you opened in browser) */
+/* ✅ GET config status */
 app.get("/api/alerts/config", (req, res) => {
   try {
     const cfg = loadEmailConfig();
@@ -144,7 +149,7 @@ app.post("/api/alerts/config", (req, res) => {
   }
 });
 
-/* ✅ NEW: Test email API (your button needs this) */
+/* ✅ Test email API */
 app.post("/api/alerts/test-email", async (req, res) => {
   try {
     const emailConfig = loadEmailConfig();
@@ -234,7 +239,7 @@ app.post("/api/alerts/email", async (req, res) => {
         .toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" })
         .replace(" ", "T") + "+05:30";
 
-    // ✅ Prevent duplicates (reading_id UNIQUE)
+    // store alert (dedupe via UNIQUE reading_id)
     try {
       db.prepare(
         `INSERT INTO alerts (reading_id, created_at, severity, temperature, humidity, pressure, message)
@@ -328,6 +333,7 @@ app.post("/api/alerts/email", async (req, res) => {
   }
 });
 
+/* ✅ History */
 app.get("/api/alerts/history", (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit || 10), 100);
