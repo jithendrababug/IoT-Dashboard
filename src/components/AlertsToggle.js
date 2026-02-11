@@ -154,6 +154,26 @@ const AlertsToggle = () => {
     }
   };
 
+  const sendTestEmail = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/alerts/test-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok || json.ok === false) {
+        throw new Error(json.error || `Test email failed (HTTP ${res.status})`);
+      }
+
+      alert("✅ Test email sent successfully! Check your inbox/spam.");
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "❌ Failed to send test email");
+    }
+  };
+
+
   return (
     <div style={containerStyle}>
       <span style={labelStyle}>Email Alerts</span>
@@ -224,7 +244,7 @@ const AlertsToggle = () => {
                 />
 
                 <button type="button" style={createPassBtn} onClick={() => setGuidelinesOpen(true)}>
-                  Create email pass
+                  How to create email pass?
                 </button>
               </div>
 
@@ -251,6 +271,13 @@ const AlertsToggle = () => {
               <div style={{ display: "flex", justifyContent: "center", marginTop: 18 }}>
                 <button style={submitBtn} onClick={onSubmit}>
                   Submit
+                </button>
+
+                <button
+                  style={testBtn}
+                  onClick={sendTestEmail}
+                >
+                  Send Test Email
                 </button>
               </div>
             </div>
@@ -442,4 +469,14 @@ const closeGuidelinesBtn = {
   color: "#111827",
   cursor: "pointer",
   fontWeight: 900,
+};
+const testBtn = {
+  padding: "10px 18px",
+  borderRadius: 12,
+  border: "1px solid #e5e7eb",
+  background: "#f3f4f6",
+  color: "#111827",
+  cursor: "pointer",
+  fontWeight: 900,
+  minWidth: 160,
 };

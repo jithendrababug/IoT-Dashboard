@@ -48,15 +48,12 @@ function toISTISOString(dateLike) {
 }
 
 function normalizeToIST(input) {
-  // ✅ If already IST (+05:30), use as-is
   if (typeof input === "string" && input.includes("+05:30")) return input;
 
-  // ✅ If UTC (Z) or any other date-like string → convert to IST
   if (typeof input === "string" && !Number.isNaN(Date.parse(input))) {
     return toISTISOString(input);
   }
 
-  // fallback
   return toISTISOString(new Date());
 }
 
@@ -123,6 +120,56 @@ app.post("/api/alerts/config", (req, res) => {
 });
 
 /* ------------------------------------------------
+   ✅ NEW: Test Email endpoint (for your popup)
+------------------------------------------------- */
+app.post("/api/alerts/test-email", async (req, res) => {
+  try {
+    const emailConfig = loadEmailConfig();
+
+    if (
+      !emailConfig ||
+      !emailConfig.fromEmail ||
+      !emailConfig.appPass ||
+      !Array.isArray(emailConfig.recipients) ||
+      emailConfig.recipients.length === 0
+    ) {
+      return res.status(400).json({
+        ok: false,
+        error: "Email config not set. Please submit Email Alert popup first.",
+      });
+    }
+
+    const dynamicTransporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: emailConfig.fromEmail, pass: emailConfig.appPass },
+    });
+
+    // ✅ This verifies auth immediately and returns a clear error if wrong
+    await dynamicTransporter.verify();
+
+    const displayTime = toISTISOString(new Date());
+
+    await dynamicTransporter.sendMail({
+      from: emailConfig.fromEmail,
+      to: emailConfig.recipients.join(","),
+      subject: `✅ Test Email Alert (${displayTime})`,
+      text:
+        `This is a TEST email from your IoT Dashboard.\n\n` +
+        `Time (IST): ${displayTime}\n` +
+        `If you received this, your email configuration is correct.\n`,
+    });
+
+    return res.json({ ok: true, sent: true, to: emailConfig.recipients });
+  } catch (err) {
+    console.error("❌ Test email error:", err);
+    return res.status(500).json({
+      ok: false,
+      error: err.message || "Failed to send test email",
+    });
+  }
+});
+
+/* ------------------------------------------------
    ✅ Insert alert (always), email optional
 ------------------------------------------------- */
 app.post("/api/alerts/email", async (req, res) => {
@@ -158,14 +205,12 @@ app.post("/api/alerts/email", async (req, res) => {
       });
     }
 
-    // ✅ Always store IST time consistently
     const createdAtFinal =
       normalizeToIST(clientTimeISO) ||
       new Date()
         .toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" })
         .replace(" ", "T") + "+05:30";
 
-    // ✅ Prevent duplicates permanently (reading_id UNIQUE)
     try {
       db.prepare(
         `INSERT INTO alerts (reading_id, created_at, severity, temperature, humidity, pressure, message)
@@ -175,7 +220,6 @@ app.post("/api/alerts/email", async (req, res) => {
       if (!String(e.message || "").includes("UNIQUE")) throw e;
     }
 
-    // ✅ Email decision
     const wantsEmail = !!sendEmail;
 
     if (!wantsEmail) {
@@ -199,9 +243,6 @@ app.post("/api/alerts/email", async (req, res) => {
       });
     }
 
-    const displayTime = createdAtFinal; // already IST string
-
-    // ✅ Load config from DB
     const emailConfig = loadEmailConfig();
 
     if (!emailConfig) {
@@ -210,6 +251,7 @@ app.post("/api/alerts/email", async (req, res) => {
         stored: true,
         sent: false,
         reason: "Email config not set.",
+        created_at: createdAtFinal,
       });
     }
 
@@ -220,6 +262,11 @@ app.post("/api/alerts/email", async (req, res) => {
         pass: emailConfig.appPass,
       },
     });
+
+    // ✅ verify before sending for clearer error in logs
+    await dynamicTransporter.verify();
+
+    const displayTime = createdAtFinal;
 
     await dynamicTransporter.sendMail({
       from: emailConfig.fromEmail,
@@ -251,7 +298,6 @@ app.post("/api/alerts/email", async (req, res) => {
   }
 });
 
-// ✅ Latest alerts (default 10)
 app.get("/api/alerts/history", (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit || 10), 100);
