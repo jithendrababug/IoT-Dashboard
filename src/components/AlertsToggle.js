@@ -1,6 +1,13 @@
 import React, { useMemo, useState } from "react";
 import { useSensorStore } from "../context/sensorStore";
 
+// ✅ API base (same pattern you use everywhere)
+const API_BASE =
+  process.env.REACT_APP_API_BASE ||
+  (process.env.NODE_ENV === "production"
+    ? "https://iot-dashboard-y27r.onrender.com"
+    : "http://localhost:5000");
+
 const AlertsToggle = () => {
   const alertsEnabled = useSensorStore((state) => state.alertsEnabled);
   const setAlertsEnabled = useSensorStore((state) => state.setAlertsEnabled);
@@ -82,7 +89,8 @@ const AlertsToggle = () => {
     setAlertsEnabled(false);
   };
 
-  const onSubmit = () => {
+  // ✅ IMPORTANT: this now saves to BACKEND too
+  const onSubmit = async () => {
     const from = String(draftFrom || "").trim();
     const pass = String(draftPass || "").trim();
     const receivers = draftReceivers.map((r) => String(r || "").trim()).filter(Boolean);
@@ -108,16 +116,42 @@ const AlertsToggle = () => {
       return;
     }
 
-    // ✅ Save config in store
-    setEmailConfig({
-      from,
-      pass,
-      receivers,
-    });
+    try {
+      // ✅ Save config in backend (so email sending uses these values)
+      const res = await fetch(`${API_BASE}/api/alerts/config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fromEmail: from,
+          appPass: pass,
+          recipients: receivers, // array
+        }),
+      });
 
-    setOpen(false);
-    setGuidelinesOpen(false);
-    alert("Email alert configuration saved!");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.ok === false) {
+        throw new Error(json.error || `Failed to save email config (HTTP ${res.status})`);
+      }
+
+      // ✅ Save config in store too (for UI convenience)
+      setEmailConfig({
+        from,
+        pass,
+        receivers,
+      });
+
+      setOpen(false);
+      setGuidelinesOpen(false);
+
+      // ✅ Keep alerts ON only after successful submit
+      setAlertsEnabled(true);
+
+      alert("Email alert configuration saved!");
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Failed to save email config. Check backend logs.");
+      // keep modal open so user can correct
+    }
   };
 
   return (
