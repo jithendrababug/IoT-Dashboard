@@ -83,6 +83,7 @@ export default function AlertHistory() {
     if (sev === "CRITICAL") return { ...base, background: "#fee2e2", color: "#991b1b" };
     return { ...base, background: "#ffedd5", color: "#9a3412" };
   };
+
   const downloadCSV = (rows) => {
     if (!rows || !rows.length) return;
 
@@ -115,7 +116,6 @@ export default function AlertHistory() {
     URL.revokeObjectURL(url);
   };
 
-
   return (
     <div
       style={{
@@ -138,13 +138,21 @@ export default function AlertHistory() {
         }}
       >
         <h2 style={{ margin: 0, fontSize: 18, color: "#111827" }}>Alert History</h2>
-        <button
-          onClick={() => downloadCSV(alerts)}
-          style={btnStyle}
-          disabled={!alerts.length}
-        >
-          Export CSV
-        </button>
+
+        {/* ✅ ONLY CHANGE: add Refresh button + keep Export CSV */}
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={fetchAlerts} style={refreshBtn} disabled={loading}>
+            {loading ? "Refreshing..." : "Refresh"}
+          </button>
+
+          <button
+            onClick={() => downloadCSV(alerts)}
+            style={btnStyle}
+            disabled={!alerts.length}
+          >
+            Export CSV
+          </button>
+        </div>
       </div>
 
       {error ? (
@@ -196,10 +204,21 @@ export default function AlertHistory() {
 
 const thStyle = { padding: "12px 10px", fontSize: 13, color: "#111827", fontWeight: 800 };
 const tdStyle = { padding: "12px 10px", fontSize: 13, color: "#111827", textAlign: "center" };
+
 const btnStyle = {
   padding: "10px 14px",
   borderRadius: 12,
   border: "1px solid #e5e7eb",
+  background: "#111827",
+  color: "white",
+  cursor: "pointer",
+  fontWeight: 700,
+};
+
+const refreshBtn = {
+  padding: "8px 14px",
+  borderRadius: 10,
+  border: "none",
   background: "#111827",
   color: "white",
   cursor: "pointer",
