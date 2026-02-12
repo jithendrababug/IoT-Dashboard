@@ -26,28 +26,18 @@ function loadEmailConfig() {
 
 const app = express();
 
-/* ✅ CORS FIX (Robust)
-   - origin is ONLY host, never includes "/IoT-Dashboard"
-   - allow localhost + github pages
-   - allow requests with no Origin (Render health checks, curl, server-to-server)
+/* ✅ CORS FIX (IMPORTANT)
+   - Allow OPTIONS (preflight)
+   - Allow Content-Type header
 */
-const allowedOrigins = new Set([
-  "http://localhost:3000",
-  "https://jithendrababug.github.io",
-]);
-
 const corsOptions = {
-  origin: (origin, cb) => {
-    if (!origin) return cb(null, true); // allow no-origin requests
-    if (allowedOrigins.has(origin)) return cb(null, true);
-    return cb(new Error(`CORS blocked for origin: ${origin}`), false);
-  },
+  origin: ["http://localhost:3000", "https://jithendrababug.github.io"],
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type"],
 };
 
 app.use(cors(corsOptions));
-app.options(/.*/, cors(corsOptions)); // ✅ preflight for all routes (safe)
+app.options(/.*/, cors(corsOptions)); // handle preflight for all routes
 app.use(express.json());
 
 const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
@@ -86,6 +76,66 @@ function getSeverityAndTriggers({ temperature, humidity, pressure }) {
   const message = triggers.join(" | ");
 
   return { triggers, severity, message };
+}
+
+/* ---------------------------
+   ✅ Gmail SMTP helper:
+   - Try 465 (SSL) first
+   - Fallback to 587 (STARTTLS)
+   - Add timeouts so Render won’t “hang”
+---------------------------- */
+function makeGmailTransport({ fromEmail, appPass }, mode) {
+  const common = {
+    auth: { user: fromEmail, pass: appPass },
+    connectionTimeout: 15000, // 15s
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
+  };
+
+  if (mode === "465") {
+    return nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,
+      ...common,
+    });
+  }
+
+  // mode === "587"
+  return nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false,
+    requireTLS: true,
+    tls: { servername: "smtp.gmail.com" },
+    ...common,
+  });
+}
+
+async function sendMailWithFallback(emailConfig, mailOptions) {
+  // 1) Try 465
+  try {
+    const t465 = makeGmailTransport(emailConfig, "465");
+    await t465.sendMail(mailOptions);
+    return { ok: true, used: "465" };
+  } catch (e1) {
+    const msg1 = String(e1?.message || "");
+    const code1 = String(e1?.code || "");
+    const isTimeout =
+      code1 === "ETIMEDOUT" ||
+      msg1.toLowerCase().includes("timeout") ||
+      msg1.toLowerCase().includes("timed out");
+
+    // If it’s not a connectivity-type error, don’t bother fallback.
+    if (!isTimeout) {
+      throw e1;
+    }
+
+    // 2) Fallback to 587
+    const t587 = makeGmailTransport(emailConfig, "587");
+    await t587.sendMail(mailOptions);
+    return { ok: true, used: "587" };
+  }
 }
 
 /* ✅ GET config status */
@@ -167,17 +217,9 @@ app.post("/api/alerts/test-email", async (req, res) => {
       });
     }
 
-    const dynamicTransporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: emailConfig.fromEmail,
-        pass: emailConfig.appPass,
-      },
-    });
-
     const nowIST = normalizeToIST(new Date());
 
-    await dynamicTransporter.sendMail({
+    const result = await sendMailWithFallback(emailConfig, {
       from: emailConfig.fromEmail,
       to: emailConfig.recipients.join(","),
       subject: `✅ IoT Dashboard Test Email (${nowIST})`,
@@ -187,31 +229,25 @@ app.post("/api/alerts/test-email", async (req, res) => {
         `If you received this, your email alert setup is working.`,
     });
 
-    return res.json({ ok: true });
+    return res.json({ ok: true, smtp: result.used });
   } catch (err) {
     console.error("❌ Test email error:", err);
-    return res.status(500).json({ ok: false, error: err.message });
+    // Return the REAL reason to frontend (no silent timeout)
+    return res.status(500).json({
+      ok: false,
+      error: err.message || "Failed to send test email",
+      code: err.code || "",
+    });
   }
 });
 
 /* ✅ Insert alert (always), email optional */
 app.post("/api/alerts/email", async (req, res) => {
   try {
-    const {
-      readingId,
-      temperature,
-      humidity,
-      pressure,
-      clientTimeISO,
-      sendEmail,
-    } = req.body;
+    const { readingId, temperature, humidity, pressure, clientTimeISO, sendEmail } =
+      req.body;
 
-    if (
-      !readingId ||
-      temperature == null ||
-      humidity == null ||
-      pressure == null
-    ) {
+    if (!readingId || temperature == null || humidity == null || pressure == null) {
       return res.status(400).json({
         ok: false,
         error: "Missing fields (readingId, temperature, humidity, pressure)",
@@ -239,20 +275,12 @@ app.post("/api/alerts/email", async (req, res) => {
         .toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" })
         .replace(" ", "T") + "+05:30";
 
-    // store alert (dedupe via UNIQUE reading_id)
+    // Prevent duplicates (reading_id UNIQUE)
     try {
       db.prepare(
         `INSERT INTO alerts (reading_id, created_at, severity, temperature, humidity, pressure, message)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        readingId,
-        createdAtFinal,
-        severity,
-        temperature,
-        humidity,
-        pressure,
-        message
-      );
+      ).run(readingId, createdAtFinal, severity, temperature, humidity, pressure, message);
     } catch (e) {
       if (!String(e.message || "").includes("UNIQUE")) throw e;
     }
@@ -295,15 +323,7 @@ app.post("/api/alerts/email", async (req, res) => {
       });
     }
 
-    const dynamicTransporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: emailConfig.fromEmail,
-        pass: emailConfig.appPass,
-      },
-    });
-
-    await dynamicTransporter.sendMail({
+    await sendMailWithFallback(emailConfig, {
       from: emailConfig.fromEmail,
       to: emailConfig.recipients.join(","),
       subject: `🚨 [${severity}] IoT Alert (${createdAtFinal})`,
@@ -329,11 +349,10 @@ app.post("/api/alerts/email", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Email alert error:", err);
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ ok: false, error: err.message, code: err.code || "" });
   }
 });
 
-/* ✅ History */
 app.get("/api/alerts/history", (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit || 10), 100);
