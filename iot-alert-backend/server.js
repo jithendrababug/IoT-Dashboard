@@ -17,8 +17,7 @@ function loadEmailConfig() {
   }
 
   return {
-    fromEmail: row.from_email,
-    appPass: row.app_pass, // kept in DB but NOT used now
+    fromEmail: row.from_email || "",
     recipients,
   };
 }
@@ -34,7 +33,6 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
-
 app.use(express.json());
 
 const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
@@ -72,28 +70,29 @@ function getSeverityAndTriggers({ temperature, humidity, pressure }) {
 }
 
 /* ------------------------------------------------
-   ✅ RESEND EMAIL SENDER (HTTP) — works on Render
+   ✅ RESEND SENDER
+   - Works without domain using onboarding@resend.dev
+   - Later (after domain verification) change FROM_DEFAULT
 ------------------------------------------------- */
-async function sendEmailViaResend({ from, toList, subject, text }) {
+const FROM_DEFAULT = "IoT Dashboard <onboarding@resend.dev>";
+
+async function sendEmailViaResend({ replyTo, toList, subject, text }) {
   const key = process.env.RESEND_API_KEY;
+
   if (!key) {
-    const err = new Error("RESEND_API_KEY is missing in backend environment");
-    err.code = "NO_RESEND_KEY";
-    throw err;
+    return {
+      ok: false,
+      error: "RESEND_API_KEY missing in Render environment variables",
+      code: "NO_RESEND_KEY",
+    };
   }
 
-  // Resend requires a verified "from" for production.
-  // For fastest setup, use their default for test:
-  // "onboarding@resend.dev"
-  // If you have a verified domain/email, replace it.
-  const fromAddress = "IoT Dashboard <onboarding@resend.dev>";
-
   const payload = {
-    from: fromAddress,
+    from: FROM_DEFAULT,
     to: toList,
     subject,
     text,
-    reply_to: from || undefined, // so replies go to user's "From" email
+    reply_to: replyTo || undefined,
   };
 
   const res = await fetch("https://api.resend.com/emails", {
@@ -106,17 +105,17 @@ async function sendEmailViaResend({ from, toList, subject, text }) {
   });
 
   const json = await res.json().catch(() => ({}));
+
   if (!res.ok) {
-    const msg =
-      json?.message ||
-      json?.error ||
-      `Resend failed (HTTP ${res.status})`;
-    const err = new Error(msg);
-    err.code = json?.name || `HTTP_${res.status}`;
-    throw err;
+    return {
+      ok: false,
+      error: json?.message || json?.error || `Resend failed (HTTP ${res.status})`,
+      code: json?.name || `HTTP_${res.status}`,
+      details: json,
+    };
   }
 
-  return json; // includes id
+  return { ok: true, id: json?.id };
 }
 
 /* ✅ GET config status */
@@ -125,7 +124,7 @@ app.get("/api/alerts/config", (req, res) => {
     const cfg = loadEmailConfig();
     const hasConfig =
       !!cfg &&
-      !!cfg.fromEmail &&
+      isValidEmail(cfg.fromEmail) &&
       Array.isArray(cfg.recipients) &&
       cfg.recipients.length > 0;
 
@@ -135,18 +134,17 @@ app.get("/api/alerts/config", (req, res) => {
   }
 });
 
-/* ✅ Save popup data into DB */
+/* ✅ Save popup data into DB (ONLY fromEmail + recipients) */
 app.post("/api/alerts/config", (req, res) => {
   try {
-    const { fromEmail, appPass, recipients } = req.body || {};
+    const { fromEmail, recipients } = req.body || {};
 
     const from = String(fromEmail || "").trim();
-    const pass = String(appPass || "").trim(); // kept for compatibility, not used now
     const list = Array.isArray(recipients)
       ? recipients.map((r) => String(r || "").trim()).filter(Boolean)
       : [];
 
-    if (!from || !pass || list.length === 0) {
+    if (!from || list.length === 0) {
       return res.status(400).json({ ok: false, error: "Missing fields" });
     }
 
@@ -161,14 +159,13 @@ app.post("/api/alerts/config", (req, res) => {
 
     db.prepare(
       `
-      INSERT INTO email_config (id, from_email, app_pass, recipients)
-      VALUES (1, ?, ?, ?)
+      INSERT INTO email_config (id, from_email, recipients)
+      VALUES (1, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         from_email=excluded.from_email,
-        app_pass=excluded.app_pass,
         recipients=excluded.recipients
     `
-    ).run(from, pass, JSON.stringify(list));
+    ).run(from, JSON.stringify(list));
 
     return res.json({ ok: true });
   } catch (err) {
@@ -184,7 +181,7 @@ app.post("/api/alerts/test-email", async (req, res) => {
 
     if (
       !emailConfig ||
-      !emailConfig.fromEmail ||
+      !isValidEmail(emailConfig.fromEmail) ||
       !Array.isArray(emailConfig.recipients) ||
       emailConfig.recipients.length === 0
     ) {
@@ -197,7 +194,7 @@ app.post("/api/alerts/test-email", async (req, res) => {
     const nowIST = normalizeToIST(new Date());
 
     const result = await sendEmailViaResend({
-      from: emailConfig.fromEmail,
+      replyTo: emailConfig.fromEmail,
       toList: emailConfig.recipients,
       subject: `✅ IoT Dashboard Test Email (${nowIST})`,
       text:
@@ -206,10 +203,14 @@ app.post("/api/alerts/test-email", async (req, res) => {
         `If you received this, your email alert setup is working.\n`,
     });
 
-    return res.json({ ok: true, provider: "resend", id: result?.id });
+    if (!result.ok) {
+      return res.status(500).json(result);
+    }
+
+    return res.json({ ok: true, provider: "resend", id: result.id });
   } catch (err) {
     console.error("❌ Test email error:", err);
-    return res.status(500).json({ ok: false, error: err.message, code: err.code });
+    return res.status(500).json({ ok: false, error: err.message });
   }
 });
 
@@ -250,18 +251,30 @@ app.post("/api/alerts/email", async (req, res) => {
     }
 
     if (!sendEmail) {
-      return res.json({ ok: true, stored: true, sent: false, reason: "Email disabled", created_at: createdAtFinal });
+      return res.json({
+        ok: true,
+        stored: true,
+        sent: false,
+        reason: "Email disabled",
+        created_at: createdAtFinal,
+      });
     }
 
     const nowMs = Date.now();
     if (nowMs - lastSentAt < COOLDOWN_MS) {
-      return res.json({ ok: true, stored: true, sent: false, reason: "Cooldown active", created_at: createdAtFinal });
+      return res.json({
+        ok: true,
+        stored: true,
+        sent: false,
+        reason: "Cooldown active",
+        created_at: createdAtFinal,
+      });
     }
 
     const emailConfig = loadEmailConfig();
     if (
       !emailConfig ||
-      !emailConfig.fromEmail ||
+      !isValidEmail(emailConfig.fromEmail) ||
       !Array.isArray(emailConfig.recipients) ||
       emailConfig.recipients.length === 0
     ) {
@@ -275,7 +288,7 @@ app.post("/api/alerts/email", async (req, res) => {
     }
 
     const result = await sendEmailViaResend({
-      from: emailConfig.fromEmail,
+      replyTo: emailConfig.fromEmail,
       toList: emailConfig.recipients,
       subject: `🚨 [${severity}] IoT Alert (${createdAtFinal})`,
       text:
@@ -288,6 +301,10 @@ app.post("/api/alerts/email", async (req, res) => {
         `Pressure: ${pressure} hPa\n`,
     });
 
+    if (!result.ok) {
+      return res.status(500).json(result);
+    }
+
     lastSentAt = nowMs;
 
     return res.json({
@@ -298,11 +315,11 @@ app.post("/api/alerts/email", async (req, res) => {
       created_at: createdAtFinal,
       to: emailConfig.recipients,
       provider: "resend",
-      id: result?.id,
+      id: result.id,
     });
   } catch (err) {
     console.error("❌ Email alert error:", err);
-    return res.status(500).json({ ok: false, error: err.message, code: err.code });
+    return res.status(500).json({ ok: false, error: err.message });
   }
 });
 
