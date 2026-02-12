@@ -37,7 +37,8 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options(/.*/, cors(corsOptions)); // handle preflight for all routes
+app.options(/.*/, cors(corsOptions)); // ✅ handle preflight for all routes
+
 app.use(express.json());
 
 const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
@@ -50,7 +51,7 @@ function toISTISOString(dateLike) {
   const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
   if (Number.isNaN(d.getTime())) return null;
 
-  const s = d.toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" });
+  const s = d.toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" }); // "YYYY-MM-DD HH:mm:ss"
   return s.replace(" ", "T") + "+05:30";
 }
 
@@ -78,63 +79,41 @@ function getSeverityAndTriggers({ temperature, humidity, pressure }) {
   return { triggers, severity, message };
 }
 
-/* ---------------------------
-   ✅ Gmail SMTP helper:
-   - Try 465 (SSL) first
-   - Fallback to 587 (STARTTLS)
-   - Add timeouts so Render won’t “hang”
----------------------------- */
-function makeGmailTransport({ fromEmail, appPass }, mode) {
+/* ------------------------------------------------
+   ✅ NEW: create transporter with fallback (465 -> 587)
+------------------------------------------------- */
+async function createGmailTransporter(fromEmail, appPass) {
   const common = {
     auth: { user: fromEmail, pass: appPass },
-    connectionTimeout: 15000, // 15s
+    // Fail fast instead of hanging for minutes
+    connectionTimeout: 15000,
     greetingTimeout: 15000,
     socketTimeout: 20000,
   };
 
-  if (mode === "465") {
-    return nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 465,
-      secure: true,
-      ...common,
-    });
-  }
-
-  // mode === "587"
-  return nodemailer.createTransport({
+  // Try 465 (SSL)
+  const t465 = nodemailer.createTransport({
     host: "smtp.gmail.com",
-    port: 587,
-    secure: false,
-    requireTLS: true,
-    tls: { servername: "smtp.gmail.com" },
+    port: 465,
+    secure: true,
     ...common,
   });
-}
 
-async function sendMailWithFallback(emailConfig, mailOptions) {
-  // 1) Try 465
   try {
-    const t465 = makeGmailTransport(emailConfig, "465");
-    await t465.sendMail(mailOptions);
-    return { ok: true, used: "465" };
-  } catch (e1) {
-    const msg1 = String(e1?.message || "");
-    const code1 = String(e1?.code || "");
-    const isTimeout =
-      code1 === "ETIMEDOUT" ||
-      msg1.toLowerCase().includes("timeout") ||
-      msg1.toLowerCase().includes("timed out");
+    await t465.verify();
+    return { transporter: t465, smtp: "465" };
+  } catch (e) {
+    // Try 587 (STARTTLS)
+    const t587 = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false,
+      requireTLS: true,
+      ...common,
+    });
 
-    // If it’s not a connectivity-type error, don’t bother fallback.
-    if (!isTimeout) {
-      throw e1;
-    }
-
-    // 2) Fallback to 587
-    const t587 = makeGmailTransport(emailConfig, "587");
-    await t587.sendMail(mailOptions);
-    return { ok: true, used: "587" };
+    await t587.verify();
+    return { transporter: t587, smtp: "587" };
   }
 }
 
@@ -219,25 +198,27 @@ app.post("/api/alerts/test-email", async (req, res) => {
 
     const nowIST = normalizeToIST(new Date());
 
-    const result = await sendMailWithFallback(emailConfig, {
+    const { transporter, smtp } = await createGmailTransporter(
+      emailConfig.fromEmail,
+      emailConfig.appPass
+    );
+
+    await transporter.sendMail({
       from: emailConfig.fromEmail,
       to: emailConfig.recipients.join(","),
       subject: `✅ IoT Dashboard Test Email (${nowIST})`,
       text:
         `This is a test email from your IoT Dashboard.\n\n` +
         `Time (IST): ${nowIST}\n` +
-        `If you received this, your email alert setup is working.`,
+        `If you received this, your email alert setup is working.\n`,
     });
 
-    return res.json({ ok: true, smtp: result.used });
+    return res.json({ ok: true, smtp });
   } catch (err) {
     console.error("❌ Test email error:", err);
-    // Return the REAL reason to frontend (no silent timeout)
-    return res.status(500).json({
-      ok: false,
-      error: err.message || "Failed to send test email",
-      code: err.code || "",
-    });
+    return res
+      .status(500)
+      .json({ ok: false, error: err.message, code: err.code });
   }
 });
 
@@ -275,7 +256,7 @@ app.post("/api/alerts/email", async (req, res) => {
         .toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" })
         .replace(" ", "T") + "+05:30";
 
-    // Prevent duplicates (reading_id UNIQUE)
+    // ✅ Prevent duplicates (reading_id UNIQUE)
     try {
       db.prepare(
         `INSERT INTO alerts (reading_id, created_at, severity, temperature, humidity, pressure, message)
@@ -323,7 +304,12 @@ app.post("/api/alerts/email", async (req, res) => {
       });
     }
 
-    await sendMailWithFallback(emailConfig, {
+    const { transporter, smtp } = await createGmailTransporter(
+      emailConfig.fromEmail,
+      emailConfig.appPass
+    );
+
+    await transporter.sendMail({
       from: emailConfig.fromEmail,
       to: emailConfig.recipients.join(","),
       subject: `🚨 [${severity}] IoT Alert (${createdAtFinal})`,
@@ -346,10 +332,11 @@ app.post("/api/alerts/email", async (req, res) => {
       severity,
       created_at: createdAtFinal,
       to: emailConfig.recipients,
+      smtp,
     });
   } catch (err) {
     console.error("❌ Email alert error:", err);
-    return res.status(500).json({ ok: false, error: err.message, code: err.code || "" });
+    return res.status(500).json({ ok: false, error: err.message, code: err.code });
   }
 });
 
