@@ -17,7 +17,7 @@ db.exec(`
 `);
 
 // ------------------- EMAIL CONFIG TABLE -------------------
-// ✅ Only store: from_email + recipients
+// ✅ Only store: from_email + recipients (JSON string)
 db.exec(`
   CREATE TABLE IF NOT EXISTS email_config (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -26,11 +26,17 @@ db.exec(`
   );
 `);
 
-// ✅ Migration: if old table had app_pass, keep app running without crash
+/* ------------------------------------------------
+   ✅ Migration-safe upgrade
+   If an old DB exists with app_pass column:
+   - copy data to new schema (drop app_pass)
+   - keep app working without crash
+------------------------------------------------- */
 try {
-  const cols = db.prepare(`PRAGMA table_info(email_config)`).all().map(c => c.name);
+  const cols = db.prepare(`PRAGMA table_info(email_config)`).all().map((c) => c.name);
+
+  // Old schema had app_pass → rebuild table to new schema
   if (cols.includes("app_pass")) {
-    // Create new table and copy data
     db.exec(`
       CREATE TABLE IF NOT EXISTS email_config_new (
         id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -48,7 +54,7 @@ try {
     db.exec(`ALTER TABLE email_config_new RENAME TO email_config;`);
   }
 } catch (e) {
-  // ignore migration errors (first-time install etc.)
+  // ignore migration errors
 }
 
 export default db;

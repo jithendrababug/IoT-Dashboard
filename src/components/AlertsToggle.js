@@ -89,6 +89,7 @@ const AlertsToggle = () => {
     setAlertsEnabled(false);
   };
 
+  // ✅ Save config (Resend version: ONLY fromEmail + recipients)
   const onSubmit = async () => {
     const from = String(draftFrom || "").trim();
     const receivers = draftReceivers
@@ -120,7 +121,6 @@ const AlertsToggle = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fromEmail: from,
-          appPass: "", // ✅ no longer needed (Resend)
           recipients: receivers,
         }),
       });
@@ -130,9 +130,13 @@ const AlertsToggle = () => {
         throw new Error(json.error || `Failed to save email config (HTTP ${res.status})`);
       }
 
+      // ✅ Save in store for UI only
       setEmailConfig({ from, receivers });
 
-      setStatus({ type: "success", text: "✅ Configuration saved. Now you can send a test email/alert." });
+      setStatus({
+        type: "success",
+        text: "✅ Configuration saved. Now you can send a test email/alert.",
+      });
 
       setAlertsEnabled(true);
       setOpen(false);
@@ -168,7 +172,7 @@ const AlertsToggle = () => {
     }
   };
 
-  // ✅ NEW: sends a real “ALERT” email + stores it in alert history
+  // ✅ Optional: test-alert endpoint (only works if backend has /api/alerts/test-alert)
   const sendTestAlert = async () => {
     setTestingAlert(true);
     setStatus({ type: "", text: "" });
@@ -184,13 +188,19 @@ const AlertsToggle = () => {
         throw new Error(json.error || `Test alert failed (HTTP ${res.status})`);
       }
 
-      // Refresh history instantly
       window.dispatchEvent(new Event("alerts-updated"));
 
       setStatus({ type: "success", text: "🚨 Test ALERT sent + added to Alert History!" });
     } catch (err) {
       console.error(err);
-      setStatus({ type: "error", text: err.message || "❌ Failed to send test alert" });
+      // If you didn't create the endpoint, you'll likely get 404
+      setStatus({
+        type: "error",
+        text:
+          err.message?.includes("404")
+            ? "❌ /api/alerts/test-alert not found in backend. (Tell me if you want me to add it.)"
+            : err.message || "❌ Failed to send test alert",
+      });
     } finally {
       setTestingAlert(false);
     }
@@ -243,7 +253,6 @@ const AlertsToggle = () => {
               </button>
             </div>
 
-            {/* ✅ Status message */}
             {status.text ? (
               <div
                 style={{
@@ -305,7 +314,7 @@ const AlertsToggle = () => {
               </div>
 
               <div style={{ marginTop: 10, textAlign: "center", color: "#6b7280", fontWeight: 700, fontSize: 12 }}>
-                “Send Test Alert” will also add a row into Alert History.
+                “Send Test Alert” will also add a row into Alert History (if backend endpoint exists).
               </div>
             </div>
           </div>
@@ -430,7 +439,6 @@ const submitBtn = {
   cursor: "pointer",
   fontWeight: 900,
   minWidth: 130,
-  opacity: 1,
 };
 
 const testBtn = {

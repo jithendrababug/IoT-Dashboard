@@ -8,10 +8,9 @@ export const useSensorStore = create((set) => ({
   alertsEnabled: false,
   setAlertsEnabled: (value) => set({ alertsEnabled: value }),
 
-  // ✅ Email alert config (UI only)
+  // ✅ Email alert config (UI only) — Resend version (NO password)
   emailConfig: {
     from: "",
-    pass: "",
     receivers: [""], // default one receiver input
   },
 
