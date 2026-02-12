@@ -17,7 +17,8 @@ function loadEmailConfig() {
   }
 
   return {
-    fromEmail: row.from_email || "",
+    fromEmail: row.from_email,
+    appPass: row.app_pass, // kept in DB for compatibility, not used now
     recipients,
   };
 }
@@ -70,25 +71,22 @@ function getSeverityAndTriggers({ temperature, humidity, pressure }) {
 }
 
 /* ------------------------------------------------
-   ✅ RESEND SENDER
-   - Works without domain using onboarding@resend.dev
-   - Later (after domain verification) change FROM_DEFAULT
+   ✅ RESEND EMAIL SENDER (HTTP) — works on Render
 ------------------------------------------------- */
-const FROM_DEFAULT = "IoT Dashboard <onboarding@resend.dev>";
-
 async function sendEmailViaResend({ replyTo, toList, subject, text }) {
   const key = process.env.RESEND_API_KEY;
-
   if (!key) {
-    return {
-      ok: false,
-      error: "RESEND_API_KEY missing in Render environment variables",
-      code: "NO_RESEND_KEY",
-    };
+    const err = new Error("RESEND_API_KEY is missing in backend environment");
+    err.code = "NO_RESEND_KEY";
+    throw err;
   }
 
+  // ✅ No domain needed for now:
+  // Use Resend test sender. Later, replace with your verified domain sender.
+  const fromAddress = "IoT Dashboard <onboarding@resend.dev>";
+
   const payload = {
-    from: FROM_DEFAULT,
+    from: fromAddress,
     to: toList,
     subject,
     text,
@@ -105,17 +103,14 @@ async function sendEmailViaResend({ replyTo, toList, subject, text }) {
   });
 
   const json = await res.json().catch(() => ({}));
-
   if (!res.ok) {
-    return {
-      ok: false,
-      error: json?.message || json?.error || `Resend failed (HTTP ${res.status})`,
-      code: json?.name || `HTTP_${res.status}`,
-      details: json,
-    };
+    const msg = json?.message || json?.error || `Resend failed (HTTP ${res.status})`;
+    const err = new Error(msg);
+    err.code = json?.name || `HTTP_${res.status}`;
+    throw err;
   }
 
-  return { ok: true, id: json?.id };
+  return json; // includes id
 }
 
 /* ✅ GET config status */
@@ -124,7 +119,7 @@ app.get("/api/alerts/config", (req, res) => {
     const cfg = loadEmailConfig();
     const hasConfig =
       !!cfg &&
-      isValidEmail(cfg.fromEmail) &&
+      !!cfg.fromEmail &&
       Array.isArray(cfg.recipients) &&
       cfg.recipients.length > 0;
 
@@ -134,17 +129,19 @@ app.get("/api/alerts/config", (req, res) => {
   }
 });
 
-/* ✅ Save popup data into DB (ONLY fromEmail + recipients) */
+/* ✅ Save popup data into DB */
 app.post("/api/alerts/config", (req, res) => {
   try {
-    const { fromEmail, recipients } = req.body || {};
+    const { fromEmail, appPass, recipients } = req.body || {};
 
     const from = String(fromEmail || "").trim();
+    const pass = String(appPass || "").trim(); // not used now, kept for compatibility
     const list = Array.isArray(recipients)
       ? recipients.map((r) => String(r || "").trim()).filter(Boolean)
       : [];
 
     if (!from || list.length === 0) {
+      // pass no longer required for resend — allow empty
       return res.status(400).json({ ok: false, error: "Missing fields" });
     }
 
@@ -159,13 +156,14 @@ app.post("/api/alerts/config", (req, res) => {
 
     db.prepare(
       `
-      INSERT INTO email_config (id, from_email, recipients)
-      VALUES (1, ?, ?)
+      INSERT INTO email_config (id, from_email, app_pass, recipients)
+      VALUES (1, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         from_email=excluded.from_email,
+        app_pass=excluded.app_pass,
         recipients=excluded.recipients
     `
-    ).run(from, JSON.stringify(list));
+    ).run(from, pass || "", JSON.stringify(list));
 
     return res.json({ ok: true });
   } catch (err) {
@@ -174,14 +172,14 @@ app.post("/api/alerts/config", (req, res) => {
   }
 });
 
-/* ✅ Test email API */
+/* ✅ Test email API (simple test) */
 app.post("/api/alerts/test-email", async (req, res) => {
   try {
     const emailConfig = loadEmailConfig();
 
     if (
       !emailConfig ||
-      !isValidEmail(emailConfig.fromEmail) ||
+      !emailConfig.fromEmail ||
       !Array.isArray(emailConfig.recipients) ||
       emailConfig.recipients.length === 0
     ) {
@@ -203,14 +201,83 @@ app.post("/api/alerts/test-email", async (req, res) => {
         `If you received this, your email alert setup is working.\n`,
     });
 
-    if (!result.ok) {
-      return res.status(500).json(result);
-    }
-
-    return res.json({ ok: true, provider: "resend", id: result.id });
+    return res.json({ ok: true, provider: "resend", id: result?.id });
   } catch (err) {
     console.error("❌ Test email error:", err);
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ ok: false, error: err.message, code: err.code });
+  }
+});
+
+/* ✅ NEW: Test ALERT API (stores in history + sends alert email instantly) */
+app.post("/api/alerts/test-alert", async (req, res) => {
+  try {
+    const emailConfig = loadEmailConfig();
+
+    if (
+      !emailConfig ||
+      !emailConfig.fromEmail ||
+      !Array.isArray(emailConfig.recipients) ||
+      emailConfig.recipients.length === 0
+    ) {
+      return res.status(400).json({
+        ok: false,
+        error: "Email config not set. Please submit Email Alert popup first.",
+      });
+    }
+
+    const createdAtFinal = normalizeToIST(new Date());
+    const readingId = `test-${Date.now()}`;
+
+    // Fixed “breach” values (guaranteed alert)
+    const temperature = 36.5;
+    const humidity = 88.2;
+    const pressure = 1032.1;
+
+    const triggers = [
+      `Temperature: ${temperature}°C (limit: 30°C)`,
+      `Humidity: ${humidity}% (limit: 70%)`,
+      `Pressure: ${pressure} hPa (limit: 1020 hPa)`,
+    ];
+    const severity = "CRITICAL";
+    const message = triggers.join(" | ");
+
+    // Store alert
+    try {
+      db.prepare(
+        `INSERT INTO alerts (reading_id, created_at, severity, temperature, humidity, pressure, message)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(readingId, createdAtFinal, severity, temperature, humidity, pressure, message);
+    } catch (e) {
+      if (!String(e.message || "").includes("UNIQUE")) throw e;
+    }
+
+    // Send email (bypass cooldown on purpose for testing)
+    const result = await sendEmailViaResend({
+      replyTo: emailConfig.fromEmail,
+      toList: emailConfig.recipients,
+      subject: `🚨 [${severity}] IoT Alert TEST (${createdAtFinal})`,
+      text:
+        `🚨 IoT Dashboard Alert (TEST)\n\n` +
+        `Severity: ${severity}\n` +
+        `Date & Time (IST): ${createdAtFinal}\n\n` +
+        `Triggered Conditions:\n- ${triggers.join("\n- ")}\n\n` +
+        `Temperature: ${temperature}°C\n` +
+        `Humidity: ${humidity}%\n` +
+        `Pressure: ${pressure} hPa\n`,
+    });
+
+    // Let frontend refresh history instantly
+    return res.json({
+      ok: true,
+      stored: true,
+      sent: true,
+      provider: "resend",
+      id: result?.id,
+      created_at: createdAtFinal,
+    });
+  } catch (err) {
+    console.error("❌ Test alert error:", err);
+    return res.status(500).json({ ok: false, error: err.message, code: err.code });
   }
 });
 
@@ -251,30 +318,18 @@ app.post("/api/alerts/email", async (req, res) => {
     }
 
     if (!sendEmail) {
-      return res.json({
-        ok: true,
-        stored: true,
-        sent: false,
-        reason: "Email disabled",
-        created_at: createdAtFinal,
-      });
+      return res.json({ ok: true, stored: true, sent: false, reason: "Email disabled", created_at: createdAtFinal });
     }
 
     const nowMs = Date.now();
     if (nowMs - lastSentAt < COOLDOWN_MS) {
-      return res.json({
-        ok: true,
-        stored: true,
-        sent: false,
-        reason: "Cooldown active",
-        created_at: createdAtFinal,
-      });
+      return res.json({ ok: true, stored: true, sent: false, reason: "Cooldown active", created_at: createdAtFinal });
     }
 
     const emailConfig = loadEmailConfig();
     if (
       !emailConfig ||
-      !isValidEmail(emailConfig.fromEmail) ||
+      !emailConfig.fromEmail ||
       !Array.isArray(emailConfig.recipients) ||
       emailConfig.recipients.length === 0
     ) {
@@ -301,10 +356,6 @@ app.post("/api/alerts/email", async (req, res) => {
         `Pressure: ${pressure} hPa\n`,
     });
 
-    if (!result.ok) {
-      return res.status(500).json(result);
-    }
-
     lastSentAt = nowMs;
 
     return res.json({
@@ -315,11 +366,11 @@ app.post("/api/alerts/email", async (req, res) => {
       created_at: createdAtFinal,
       to: emailConfig.recipients,
       provider: "resend",
-      id: result.id,
+      id: result?.id,
     });
   } catch (err) {
     console.error("❌ Email alert error:", err);
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ ok: false, error: err.message, code: err.code });
   }
 });
 

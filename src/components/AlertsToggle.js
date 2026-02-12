@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useSensorStore } from "../context/sensorStore";
 
-// ✅ API base
 const API_BASE =
   process.env.REACT_APP_API_BASE ||
   (process.env.NODE_ENV === "production"
@@ -16,6 +15,12 @@ const AlertsToggle = () => {
   const setEmailConfig = useSensorStore((state) => state.setEmailConfig);
 
   const [open, setOpen] = useState(false);
+
+  // ✅ UI status
+  const [status, setStatus] = useState({ type: "", text: "" });
+  const [saving, setSaving] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
+  const [testingAlert, setTestingAlert] = useState(false);
 
   // Draft state
   const [draftFrom, setDraftFrom] = useState(emailConfig?.from || "");
@@ -44,6 +49,8 @@ const AlertsToggle = () => {
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
 
   const openModalWithCurrentConfig = () => {
+    setStatus({ type: "", text: "" });
+
     setDraftFrom(emailConfig?.from || "");
     setDraftReceivers(
       Array.isArray(emailConfig?.receivers) && emailConfig.receivers.length
@@ -65,7 +72,9 @@ const AlertsToggle = () => {
     }
   };
 
-  const onAddReceiver = () => setDraftReceivers((prev) => [...prev, ""]);
+  const onAddReceiver = () => {
+    setDraftReceivers((prev) => [...prev, ""]);
+  };
 
   const onChangeReceiver = (index, value) => {
     setDraftReceivers((prev) => {
@@ -82,23 +91,28 @@ const AlertsToggle = () => {
 
   const onSubmit = async () => {
     const from = String(draftFrom || "").trim();
-    const receivers = draftReceivers.map((r) => String(r || "").trim()).filter(Boolean);
+    const receivers = draftReceivers
+      .map((r) => String(r || "").trim())
+      .filter(Boolean);
 
     if (!validateEmail(from)) {
-      alert("Please enter a valid sender email in FROM.");
+      setStatus({ type: "error", text: "Please enter a valid sender email in FROM." });
       return;
     }
 
     if (receivers.length === 0) {
-      alert("Please enter at least one receiver email in TO.");
+      setStatus({ type: "error", text: "Please enter at least one receiver email in TO." });
       return;
     }
 
     const bad = receivers.find((r) => !validateEmail(r));
     if (bad) {
-      alert(`Invalid receiver email: ${bad}`);
+      setStatus({ type: "error", text: `Invalid receiver email: ${bad}` });
       return;
     }
+
+    setSaving(true);
+    setStatus({ type: "", text: "" });
 
     try {
       const res = await fetch(`${API_BASE}/api/alerts/config`, {
@@ -106,6 +120,7 @@ const AlertsToggle = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fromEmail: from,
+          appPass: "", // ✅ no longer needed (Resend)
           recipients: receivers,
         }),
       });
@@ -117,17 +132,22 @@ const AlertsToggle = () => {
 
       setEmailConfig({ from, receivers });
 
-      setOpen(false);
-      setAlertsEnabled(true);
+      setStatus({ type: "success", text: "✅ Configuration saved. Now you can send a test email/alert." });
 
-      alert("Email alert configuration saved!");
+      setAlertsEnabled(true);
+      setOpen(false);
     } catch (err) {
       console.error(err);
-      alert(err.message || "Failed to save email config. Check backend logs.");
+      setStatus({ type: "error", text: err.message || "Failed to save config." });
+    } finally {
+      setSaving(false);
     }
   };
 
   const sendTestEmail = async () => {
+    setTestingEmail(true);
+    setStatus({ type: "", text: "" });
+
     try {
       const res = await fetch(`${API_BASE}/api/alerts/test-email`, {
         method: "POST",
@@ -139,10 +159,40 @@ const AlertsToggle = () => {
         throw new Error(json.error || `Test email failed (HTTP ${res.status})`);
       }
 
-      alert("✅ Test email sent successfully! Check your inbox/spam.");
+      setStatus({ type: "success", text: "✅ Test email sent! Check inbox/spam." });
     } catch (err) {
       console.error(err);
-      alert(err.message || "❌ Failed to send test email");
+      setStatus({ type: "error", text: err.message || "❌ Failed to send test email" });
+    } finally {
+      setTestingEmail(false);
+    }
+  };
+
+  // ✅ NEW: sends a real “ALERT” email + stores it in alert history
+  const sendTestAlert = async () => {
+    setTestingAlert(true);
+    setStatus({ type: "", text: "" });
+
+    try {
+      const res = await fetch(`${API_BASE}/api/alerts/test-alert`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.ok === false) {
+        throw new Error(json.error || `Test alert failed (HTTP ${res.status})`);
+      }
+
+      // Refresh history instantly
+      window.dispatchEvent(new Event("alerts-updated"));
+
+      setStatus({ type: "success", text: "🚨 Test ALERT sent + added to Alert History!" });
+    } catch (err) {
+      console.error(err);
+      setStatus({ type: "error", text: err.message || "❌ Failed to send test alert" });
+    } finally {
+      setTestingAlert(false);
     }
   };
 
@@ -193,22 +243,35 @@ const AlertsToggle = () => {
               </button>
             </div>
 
+            {/* ✅ Status message */}
+            {status.text ? (
+              <div
+                style={{
+                  marginBottom: 10,
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  fontWeight: 800,
+                  background: status.type === "error" ? "#fee2e2" : "#dcfce7",
+                  color: status.type === "error" ? "#991b1b" : "#166534",
+                }}
+              >
+                {status.text}
+              </div>
+            ) : null}
+
             <div style={form}>
               <div style={field}>
-                <label style={fieldLabel}>From</label>
+                <label style={fieldLabel}>From (reply-to)</label>
                 <input
                   style={input}
-                  placeholder="Enter the sender mail id"
+                  placeholder="Enter your email id"
                   value={draftFrom}
                   onChange={(e) => setDraftFrom(e.target.value)}
                 />
-                <div style={hintText}>
-                  For now, replies go to this email. Actual sending uses Resend default until you verify a domain.
-                </div>
               </div>
 
               <div style={field}>
-                <label style={fieldLabel}>To</label>
+                <label style={fieldLabel}>To (receivers)</label>
 
                 {draftReceivers.map((val, idx) => (
                   <input
@@ -227,14 +290,22 @@ const AlertsToggle = () => {
                 </div>
               </div>
 
-              <div style={{ display: "flex", justifyContent: "center", marginTop: 18, gap: 12 }}>
-                <button style={submitBtn} onClick={onSubmit}>
-                  Submit
+              <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 18, flexWrap: "wrap" }}>
+                <button style={submitBtn} onClick={onSubmit} disabled={saving || testingEmail || testingAlert}>
+                  {saving ? "Saving..." : "Submit"}
                 </button>
 
-                <button style={testBtn} onClick={sendTestEmail}>
-                  Send Test Email
+                <button style={testBtn} onClick={sendTestEmail} disabled={saving || testingEmail || testingAlert}>
+                  {testingEmail ? "Sending..." : "Send Test Email"}
                 </button>
+
+                <button style={alertBtn} onClick={sendTestAlert} disabled={saving || testingEmail || testingAlert}>
+                  {testingAlert ? "Sending..." : "Send Test Alert"}
+                </button>
+              </div>
+
+              <div style={{ marginTop: 10, textAlign: "center", color: "#6b7280", fontWeight: 700, fontSize: 12 }}>
+                “Send Test Alert” will also add a row into Alert History.
               </div>
             </div>
           </div>
@@ -246,7 +317,7 @@ const AlertsToggle = () => {
 
 export default AlertsToggle;
 
-/* ---------- styles (your existing + tiny hint text) ---------- */
+/* ---------- Styles ---------- */
 
 const containerStyle = {
   display: "flex",
@@ -301,7 +372,7 @@ const backdrop = {
 };
 
 const modal = {
-  width: "min(560px, 96vw)",
+  width: "min(620px, 96vw)",
   background: "white",
   borderRadius: 16,
   boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
@@ -340,13 +411,6 @@ const input = {
   fontSize: 14,
 };
 
-const hintText = {
-  marginTop: 6,
-  fontSize: 12,
-  color: "#6b7280",
-  fontWeight: 600,
-};
-
 const addReceiverBtn = {
   padding: "10px 14px",
   borderRadius: 12,
@@ -365,7 +429,8 @@ const submitBtn = {
   color: "white",
   cursor: "pointer",
   fontWeight: 900,
-  minWidth: 140,
+  minWidth: 130,
+  opacity: 1,
 };
 
 const testBtn = {
@@ -376,5 +441,16 @@ const testBtn = {
   color: "#111827",
   cursor: "pointer",
   fontWeight: 900,
-  minWidth: 160,
+  minWidth: 150,
+};
+
+const alertBtn = {
+  padding: "10px 18px",
+  borderRadius: 12,
+  border: "none",
+  background: "#dc2626",
+  color: "white",
+  cursor: "pointer",
+  fontWeight: 900,
+  minWidth: 150,
 };
