@@ -1,7 +1,6 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import nodemailer from "nodemailer";
 import db from "./db.js";
 
 dotenv.config();
@@ -19,17 +18,14 @@ function loadEmailConfig() {
 
   return {
     fromEmail: row.from_email,
-    appPass: row.app_pass,
+    appPass: row.app_pass, // kept in DB but NOT used now
     recipients,
   };
 }
 
 const app = express();
 
-/* ✅ CORS FIX (IMPORTANT)
-   - Allow OPTIONS (preflight)
-   - Allow Content-Type header
-*/
+/* ✅ CORS */
 const corsOptions = {
   origin: ["http://localhost:3000", "https://jithendrababug.github.io"],
   methods: ["GET", "POST", "OPTIONS"],
@@ -37,7 +33,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options(/.*/, cors(corsOptions)); // ✅ handle preflight for all routes
+app.options(/.*/, cors(corsOptions));
 
 app.use(express.json());
 
@@ -51,26 +47,22 @@ function toISTISOString(dateLike) {
   const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
   if (Number.isNaN(d.getTime())) return null;
 
-  const s = d.toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" }); // "YYYY-MM-DD HH:mm:ss"
+  const s = d.toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" });
   return s.replace(" ", "T") + "+05:30";
 }
 
 function normalizeToIST(input) {
   if (typeof input === "string" && input.includes("+05:30")) return input;
-  if (typeof input === "string" && !Number.isNaN(Date.parse(input))) {
-    return toISTISOString(input);
-  }
+  if (typeof input === "string" && !Number.isNaN(Date.parse(input))) return toISTISOString(input);
   return toISTISOString(new Date());
 }
 
 function getSeverityAndTriggers({ temperature, humidity, pressure }) {
   const triggers = [];
 
-  if (temperature > 30)
-    triggers.push(`Temperature: ${temperature}°C (limit: 30°C)`);
+  if (temperature > 30) triggers.push(`Temperature: ${temperature}°C (limit: 30°C)`);
   if (humidity > 70) triggers.push(`Humidity: ${humidity}% (limit: 70%)`);
-  if (pressure > 1020)
-    triggers.push(`Pressure: ${pressure} hPa (limit: 1020 hPa)`);
+  if (pressure > 1020) triggers.push(`Pressure: ${pressure} hPa (limit: 1020 hPa)`);
 
   const critical = temperature >= 35 || humidity >= 85 || pressure >= 1030;
   const severity = critical ? "CRITICAL" : "WARNING";
@@ -80,41 +72,51 @@ function getSeverityAndTriggers({ temperature, humidity, pressure }) {
 }
 
 /* ------------------------------------------------
-   ✅ NEW: create transporter with fallback (465 -> 587)
+   ✅ RESEND EMAIL SENDER (HTTP) — works on Render
 ------------------------------------------------- */
-async function createGmailTransporter(fromEmail, appPass) {
-  const common = {
-    auth: { user: fromEmail, pass: appPass },
-    // Fail fast instead of hanging for minutes
-    connectionTimeout: 15000,
-    greetingTimeout: 15000,
-    socketTimeout: 20000,
+async function sendEmailViaResend({ from, toList, subject, text }) {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) {
+    const err = new Error("RESEND_API_KEY is missing in backend environment");
+    err.code = "NO_RESEND_KEY";
+    throw err;
+  }
+
+  // Resend requires a verified "from" for production.
+  // For fastest setup, use their default for test:
+  // "onboarding@resend.dev"
+  // If you have a verified domain/email, replace it.
+  const fromAddress = "IoT Dashboard <onboarding@resend.dev>";
+
+  const payload = {
+    from: fromAddress,
+    to: toList,
+    subject,
+    text,
+    reply_to: from || undefined, // so replies go to user's "From" email
   };
 
-  // Try 465 (SSL)
-  const t465 = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
-    ...common,
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
   });
 
-  try {
-    await t465.verify();
-    return { transporter: t465, smtp: "465" };
-  } catch (e) {
-    // Try 587 (STARTTLS)
-    const t587 = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 587,
-      secure: false,
-      requireTLS: true,
-      ...common,
-    });
-
-    await t587.verify();
-    return { transporter: t587, smtp: "587" };
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg =
+      json?.message ||
+      json?.error ||
+      `Resend failed (HTTP ${res.status})`;
+    const err = new Error(msg);
+    err.code = json?.name || `HTTP_${res.status}`;
+    throw err;
   }
+
+  return json; // includes id
 }
 
 /* ✅ GET config status */
@@ -124,7 +126,6 @@ app.get("/api/alerts/config", (req, res) => {
     const hasConfig =
       !!cfg &&
       !!cfg.fromEmail &&
-      !!cfg.appPass &&
       Array.isArray(cfg.recipients) &&
       cfg.recipients.length > 0;
 
@@ -140,7 +141,7 @@ app.post("/api/alerts/config", (req, res) => {
     const { fromEmail, appPass, recipients } = req.body || {};
 
     const from = String(fromEmail || "").trim();
-    const pass = String(appPass || "").trim();
+    const pass = String(appPass || "").trim(); // kept for compatibility, not used now
     const list = Array.isArray(recipients)
       ? recipients.map((r) => String(r || "").trim()).filter(Boolean)
       : [];
@@ -155,20 +156,18 @@ app.post("/api/alerts/config", (req, res) => {
 
     const bad = list.find((r) => !isValidEmail(r));
     if (bad) {
-      return res
-        .status(400)
-        .json({ ok: false, error: `Invalid receiver email: ${bad}` });
+      return res.status(400).json({ ok: false, error: `Invalid receiver email: ${bad}` });
     }
 
     db.prepare(
       `
-        INSERT INTO email_config (id, from_email, app_pass, recipients)
-        VALUES (1, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          from_email=excluded.from_email,
-          app_pass=excluded.app_pass,
-          recipients=excluded.recipients
-      `
+      INSERT INTO email_config (id, from_email, app_pass, recipients)
+      VALUES (1, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        from_email=excluded.from_email,
+        app_pass=excluded.app_pass,
+        recipients=excluded.recipients
+    `
     ).run(from, pass, JSON.stringify(list));
 
     return res.json({ ok: true });
@@ -186,7 +185,6 @@ app.post("/api/alerts/test-email", async (req, res) => {
     if (
       !emailConfig ||
       !emailConfig.fromEmail ||
-      !emailConfig.appPass ||
       !Array.isArray(emailConfig.recipients) ||
       emailConfig.recipients.length === 0
     ) {
@@ -198,14 +196,9 @@ app.post("/api/alerts/test-email", async (req, res) => {
 
     const nowIST = normalizeToIST(new Date());
 
-    const { transporter, smtp } = await createGmailTransporter(
-      emailConfig.fromEmail,
-      emailConfig.appPass
-    );
-
-    await transporter.sendMail({
+    const result = await sendEmailViaResend({
       from: emailConfig.fromEmail,
-      to: emailConfig.recipients.join(","),
+      toList: emailConfig.recipients,
       subject: `✅ IoT Dashboard Test Email (${nowIST})`,
       text:
         `This is a test email from your IoT Dashboard.\n\n` +
@@ -213,20 +206,17 @@ app.post("/api/alerts/test-email", async (req, res) => {
         `If you received this, your email alert setup is working.\n`,
     });
 
-    return res.json({ ok: true, smtp });
+    return res.json({ ok: true, provider: "resend", id: result?.id });
   } catch (err) {
     console.error("❌ Test email error:", err);
-    return res
-      .status(500)
-      .json({ ok: false, error: err.message, code: err.code });
+    return res.status(500).json({ ok: false, error: err.message, code: err.code });
   }
 });
 
 /* ✅ Insert alert (always), email optional */
 app.post("/api/alerts/email", async (req, res) => {
   try {
-    const { readingId, temperature, humidity, pressure, clientTimeISO, sendEmail } =
-      req.body;
+    const { readingId, temperature, humidity, pressure, clientTimeISO, sendEmail } = req.body;
 
     if (!readingId || temperature == null || humidity == null || pressure == null) {
       return res.status(400).json({
@@ -242,21 +232,14 @@ app.post("/api/alerts/email", async (req, res) => {
     });
 
     if (triggers.length === 0) {
-      return res.json({
-        ok: true,
-        stored: false,
-        sent: false,
-        reason: "No threshold breached",
-      });
+      return res.json({ ok: true, stored: false, sent: false, reason: "No threshold breached" });
     }
 
     const createdAtFinal =
       normalizeToIST(clientTimeISO) ||
-      new Date()
-        .toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" })
-        .replace(" ", "T") + "+05:30";
+      new Date().toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" }).replace(" ", "T") + "+05:30";
 
-    // ✅ Prevent duplicates (reading_id UNIQUE)
+    // store alert (dedupe)
     try {
       db.prepare(
         `INSERT INTO alerts (reading_id, created_at, severity, temperature, humidity, pressure, message)
@@ -267,31 +250,18 @@ app.post("/api/alerts/email", async (req, res) => {
     }
 
     if (!sendEmail) {
-      return res.json({
-        ok: true,
-        stored: true,
-        sent: false,
-        reason: "Email disabled",
-        created_at: createdAtFinal,
-      });
+      return res.json({ ok: true, stored: true, sent: false, reason: "Email disabled", created_at: createdAtFinal });
     }
 
     const nowMs = Date.now();
     if (nowMs - lastSentAt < COOLDOWN_MS) {
-      return res.json({
-        ok: true,
-        stored: true,
-        sent: false,
-        reason: "Cooldown active",
-        created_at: createdAtFinal,
-      });
+      return res.json({ ok: true, stored: true, sent: false, reason: "Cooldown active", created_at: createdAtFinal });
     }
 
     const emailConfig = loadEmailConfig();
     if (
       !emailConfig ||
       !emailConfig.fromEmail ||
-      !emailConfig.appPass ||
       !Array.isArray(emailConfig.recipients) ||
       emailConfig.recipients.length === 0
     ) {
@@ -304,14 +274,9 @@ app.post("/api/alerts/email", async (req, res) => {
       });
     }
 
-    const { transporter, smtp } = await createGmailTransporter(
-      emailConfig.fromEmail,
-      emailConfig.appPass
-    );
-
-    await transporter.sendMail({
+    const result = await sendEmailViaResend({
       from: emailConfig.fromEmail,
-      to: emailConfig.recipients.join(","),
+      toList: emailConfig.recipients,
       subject: `🚨 [${severity}] IoT Alert (${createdAtFinal})`,
       text:
         `🚨 IoT Dashboard Alert\n\n` +
@@ -332,7 +297,8 @@ app.post("/api/alerts/email", async (req, res) => {
       severity,
       created_at: createdAtFinal,
       to: emailConfig.recipients,
-      smtp,
+      provider: "resend",
+      id: result?.id,
     });
   } catch (err) {
     console.error("❌ Email alert error:", err);
@@ -343,10 +309,7 @@ app.post("/api/alerts/email", async (req, res) => {
 app.get("/api/alerts/history", (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit || 10), 100);
-    const rows = db
-      .prepare("SELECT * FROM alerts ORDER BY created_at DESC LIMIT ?")
-      .all(limit);
-
+    const rows = db.prepare("SELECT * FROM alerts ORDER BY created_at DESC LIMIT ?").all(limit);
     res.json({ ok: true, alerts: rows });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
