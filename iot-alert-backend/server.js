@@ -214,30 +214,6 @@ app.post("/api/alerts/config", (req, res) => {
 /* ---------------------------
    ✅ TEST EMAIL (kept)
 ---------------------------- */
-app.post("/api/alerts/test-email", async (req, res) => {
-  try {
-    const emailConfig = loadEmailConfig();
-    if (!emailConfig?.fromEmail || !emailConfig?.recipients?.length) {
-      return res.status(400).json({
-        ok: false,
-        error: "Email config not set. Please submit Email Alert popup first.",
-      });
-    }
-
-    const nowIST = normalizeToIST(new Date());
-    const result = await sendEmailViaResend({
-      replyTo: emailConfig.fromEmail,
-      toList: emailConfig.recipients,
-      subject: `✅ IoT Dashboard Test Email (${nowIST})`,
-      text: `This is a test email.\nTime (IST): ${nowIST}\nIf you received this, email sending is working.`,
-    });
-
-    return res.json({ ok: true, provider: "resend", id: result?.id });
-  } catch (err) {
-    console.error("❌ Test email error:", err);
-    return res.status(500).json({ ok: false, error: err.message, code: err.code });
-  }
-});
 
 /* ---------------------------
    ✅ MAIN PRODUCTION ALERT ENDPOINT
@@ -358,68 +334,6 @@ app.get("/api/alerts/history", (req, res) => {
     return res.json({ ok: true, alerts: rows });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-/* ---------------------------
-   ✅ OPTIONAL: Test Alert (real alert + history)
-   Used by your "Send Test Alert" button
----------------------------- */
-app.post("/api/alerts/test-alert", async (req, res) => {
-  try {
-    // Force a breach
-    const readingId = `test_${Date.now()}`;
-    const temperature = 36.5;
-    const humidity = 88.2;
-    const pressure = 1032.1;
-
-    // Reuse main logic by calling the handler code style:
-    const payload = {
-      readingId,
-      temperature,
-      humidity,
-      pressure,
-      clientTimeISO: normalizeToIST(new Date()),
-      sendEmail: true,
-    };
-
-    // Just call the same endpoint logic by duplicating minimal part:
-    req.body = payload;
-    // Easiest: run the same code path by doing fetch to local? not needed.
-    // We'll inline it quickly:
-    const { triggers, severity, message } = getSeverityAndTriggers(payload);
-    const createdAtFinal = normalizeToIST(payload.clientTimeISO);
-
-    try {
-      db.prepare(
-        `INSERT INTO alerts (reading_id, created_at, severity, temperature, humidity, pressure, message)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run(readingId, createdAtFinal, severity, temperature, humidity, pressure, message);
-    } catch {}
-
-    const emailConfig = loadEmailConfig();
-    if (!emailConfig?.fromEmail || !emailConfig?.recipients?.length) {
-      return res.status(400).json({ ok: false, error: "Email config not set." });
-    }
-
-    const result = await sendEmailViaResend({
-      replyTo: emailConfig.fromEmail,
-      toList: emailConfig.recipients,
-      subject: `🚨 [${severity}] IoT Alert (${createdAtFinal})`,
-      text:
-        `🚨 IoT Dashboard Alert (TEST)\n\n` +
-        `Severity: ${severity}\n` +
-        `Date & Time (IST): ${createdAtFinal}\n\n` +
-        `Triggered Conditions:\n- ${triggers.join("\n- ")}\n\n` +
-        `Temperature: ${temperature}°C\n` +
-        `Humidity: ${humidity}%\n` +
-        `Pressure: ${pressure} hPa\n`,
-    });
-
-    return res.json({ ok: true, sent: true, provider: "resend", id: result?.id });
-  } catch (err) {
-    console.error("❌ Test alert error:", err);
-    return res.status(500).json({ ok: false, error: err.message, code: err.code });
   }
 });
 
