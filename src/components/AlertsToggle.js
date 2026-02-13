@@ -16,13 +16,11 @@ const AlertsToggle = () => {
 
   const [open, setOpen] = useState(false);
 
-  // ✅ UI status
   const [status, setStatus] = useState({ type: "", text: "" });
   const [saving, setSaving] = useState(false);
   const [testingEmail, setTestingEmail] = useState(false);
   const [testingAlert, setTestingAlert] = useState(false);
 
-  // Draft state
   const [draftFrom, setDraftFrom] = useState(emailConfig?.from || "");
   const [draftReceivers, setDraftReceivers] = useState(
     Array.isArray(emailConfig?.receivers) && emailConfig.receivers.length
@@ -57,6 +55,7 @@ const AlertsToggle = () => {
         ? [...emailConfig.receivers]
         : [""]
     );
+
     setOpen(true);
   };
 
@@ -72,9 +71,7 @@ const AlertsToggle = () => {
     }
   };
 
-  const onAddReceiver = () => {
-    setDraftReceivers((prev) => [...prev, ""]);
-  };
+  const onAddReceiver = () => setDraftReceivers((prev) => [...prev, ""]);
 
   const onChangeReceiver = (index, value) => {
     setDraftReceivers((prev) => {
@@ -86,26 +83,22 @@ const AlertsToggle = () => {
 
   const onCloseModal = () => {
     setOpen(false);
+    // Keep OFF if user closes without submitting
     setAlertsEnabled(false);
   };
 
-  // ✅ Save config (Resend version: ONLY fromEmail + recipients)
   const onSubmit = async () => {
     const from = String(draftFrom || "").trim();
-    const receivers = draftReceivers
-      .map((r) => String(r || "").trim())
-      .filter(Boolean);
+    const receivers = draftReceivers.map((r) => String(r || "").trim()).filter(Boolean);
 
     if (!validateEmail(from)) {
       setStatus({ type: "error", text: "Please enter a valid sender email in FROM." });
       return;
     }
-
     if (receivers.length === 0) {
       setStatus({ type: "error", text: "Please enter at least one receiver email in TO." });
       return;
     }
-
     const bad = receivers.find((r) => !validateEmail(r));
     if (bad) {
       setStatus({ type: "error", text: `Invalid receiver email: ${bad}` });
@@ -121,23 +114,24 @@ const AlertsToggle = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fromEmail: from,
-          recipients: receivers,
+          recipients: receivers, // ✅ backend expects this
         }),
       });
 
       const json = await res.json().catch(() => ({}));
       if (!res.ok || json.ok === false) {
-        throw new Error(json.error || `Failed to save email config (HTTP ${res.status})`);
+        throw new Error(json.error || `Failed to save config (HTTP ${res.status})`);
       }
 
-      // ✅ Save in store for UI only
+      // ✅ Store for UI convenience
       setEmailConfig({ from, receivers });
 
       setStatus({
         type: "success",
-        text: "✅ Configuration saved. Now you can send a test email/alert.",
+        text: "✅ Configuration saved. Now you can send Test Email / Test Alert.",
       });
 
+      // ✅ Enable only after submit
       setAlertsEnabled(true);
       setOpen(false);
     } catch (err) {
@@ -172,7 +166,6 @@ const AlertsToggle = () => {
     }
   };
 
-  // ✅ Optional: test-alert endpoint (only works if backend has /api/alerts/test-alert)
   const sendTestAlert = async () => {
     setTestingAlert(true);
     setStatus({ type: "", text: "" });
@@ -189,18 +182,10 @@ const AlertsToggle = () => {
       }
 
       window.dispatchEvent(new Event("alerts-updated"));
-
       setStatus({ type: "success", text: "🚨 Test ALERT sent + added to Alert History!" });
     } catch (err) {
       console.error(err);
-      // If you didn't create the endpoint, you'll likely get 404
-      setStatus({
-        type: "error",
-        text:
-          err.message?.includes("404")
-            ? "❌ /api/alerts/test-alert not found in backend. (Tell me if you want me to add it.)"
-            : err.message || "❌ Failed to send test alert",
-      });
+      setStatus({ type: "error", text: err.message || "❌ Failed to send test alert" });
     } finally {
       setTestingAlert(false);
     }
@@ -217,13 +202,7 @@ const AlertsToggle = () => {
           onChange={onToggleChange}
           style={{ display: "none" }}
         />
-
-        <span
-          style={{
-            ...sliderStyle,
-            backgroundColor: alertsEnabled ? "#2d22c5" : "#9ca3af",
-          }}
-        >
+        <span style={{ ...sliderStyle, backgroundColor: alertsEnabled ? "#2d22c5" : "#9ca3af" }}>
           <span
             style={{
               ...knobStyle,
@@ -233,13 +212,7 @@ const AlertsToggle = () => {
         </span>
       </label>
 
-      <span
-        style={{
-          marginLeft: 10,
-          fontWeight: 800,
-          color: alertsEnabled ? "#16a34a" : "#374151",
-        }}
-      >
+      <span style={{ marginLeft: 10, fontWeight: 800, color: alertsEnabled ? "#16a34a" : "#374151" }}>
         {alertsEnabled ? "ON" : "OFF"}
       </span>
 
@@ -314,7 +287,7 @@ const AlertsToggle = () => {
               </div>
 
               <div style={{ marginTop: 10, textAlign: "center", color: "#6b7280", fontWeight: 700, fontSize: 12 }}>
-                “Send Test Alert” will also add a row into Alert History (if backend endpoint exists).
+                “Send Test Alert” will also add a row into Alert History.
               </div>
             </div>
           </div>
@@ -327,7 +300,6 @@ const AlertsToggle = () => {
 export default AlertsToggle;
 
 /* ---------- Styles ---------- */
-
 const containerStyle = {
   display: "flex",
   alignItems: "center",
@@ -336,26 +308,11 @@ const containerStyle = {
   marginBottom: 25,
 };
 
-const labelStyle = {
-  fontWeight: 700,
-  fontSize: 15,
-  color: "#111827",
-};
+const labelStyle = { fontWeight: 700, fontSize: 15, color: "#111827" };
 
-const switchStyle = {
-  position: "relative",
-  display: "inline-block",
-  width: 60,
-  height: 30,
-};
+const switchStyle = { position: "relative", display: "inline-block", width: 60, height: 30 };
 
-const sliderStyle = {
-  position: "absolute",
-  cursor: "pointer",
-  inset: 0,
-  borderRadius: 999,
-  transition: "0.25s",
-};
+const sliderStyle = { position: "absolute", cursor: "pointer", inset: 0, borderRadius: 999, transition: "0.25s" };
 
 const knobStyle = {
   position: "absolute",
@@ -389,27 +346,13 @@ const modal = {
   position: "relative",
 };
 
-const modalHeader = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  marginBottom: 12,
-};
-
+const modalHeader = { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 };
 const modalTitle = { margin: 0, fontSize: 18, color: "#111827", fontWeight: 900 };
 
-const xBtn = {
-  border: "none",
-  background: "transparent",
-  fontSize: 18,
-  cursor: "pointer",
-  color: "#111827",
-};
+const xBtn = { border: "none", background: "transparent", fontSize: 18, cursor: "pointer", color: "#111827" };
 
 const form = { display: "flex", flexDirection: "column", gap: 14 };
-
 const field = { display: "flex", flexDirection: "column" };
-
 const fieldLabel = { fontWeight: 800, marginBottom: 6, color: "#111827" };
 
 const input = {
