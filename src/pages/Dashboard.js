@@ -6,6 +6,7 @@ import AlertsToggle from "../components/AlertsToggle";
 import AlertHistory from "../components/AlertHistory";
 import { useSensorStore } from "../context/sensorStore";
 import { startSensorSimulation } from "../api/sensorAPI";
+import {motion} from "framer-motion";
 
 const Dashboard = () => {
   const sensors = useSensorStore((state) => state.sensors);
@@ -17,7 +18,7 @@ const Dashboard = () => {
   }, []);
 
   return (
-    <div className="page">
+    <div className="page homePage">
       {/* Background accents */}
       <div className="bg-orb orb-1" />
       <div className="bg-orb orb-2" />
