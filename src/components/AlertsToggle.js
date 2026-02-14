@@ -84,9 +84,7 @@ const AlertsToggle = () => {
     setStatus({ type: "", text: "" });
   };
 
-  const onAddReceiver = () => {
-    setDraftReceivers((prev) => [...prev, ""]);
-  };
+  const onAddReceiver = () => setDraftReceivers((prev) => [...prev, ""]);
 
   const onChangeReceiver = (index, value) => {
     setDraftReceivers((prev) => {
@@ -98,23 +96,27 @@ const AlertsToggle = () => {
 
   const onSubmit = async () => {
     const from = String(draftFrom || "").trim();
-    const receivers = draftReceivers.map((r) => String(r || "").trim()).filter(Boolean);
+    const receivers = draftReceivers
+      .map((r) => String(r || "").trim())
+      .filter(Boolean);
 
-    // Validations (fast + clear)
+    // Validations
     if (!from) {
       setStatus({ type: "error", text: "Please enter the From value." });
       return;
     }
 
-    // If you truly want this to be an email (recommended), keep this validation.
-    // If "resend id" is not an email, tell me and I’ll relax this validation.
+    // Keep email validation (recommended)
     if (!validateEmail(from)) {
       setStatus({ type: "error", text: "Please enter a valid email in From." });
       return;
     }
 
     if (receivers.length === 0) {
-      setStatus({ type: "error", text: "Please enter at least one receiver email in To." });
+      setStatus({
+        type: "error",
+        text: "Please enter at least one receiver email in To.",
+      });
       return;
     }
 
@@ -149,20 +151,23 @@ const AlertsToggle = () => {
       // enable alerts only after successful save
       setAlertsEnabled(true);
 
-      // show success message
-      const msg =
-        "✅ Email alerts are enabled successfully. You’ll receive alerts only when a threshold is breached (after this point).";
+      // success message (better wording)
+      setStatus({
+        type: "success",
+        text:
+          "✅ Email alerts enabled. You will receive notifications only when sensor values cross the threshold from now on.",
+      });
 
-      setStatus({ type: "success", text: msg });
-
-      // close modal after a short moment so user sees success
       setTimeout(() => {
         setOpen(false);
         setStatus({ type: "", text: "" });
-      }, 600);
+      }, 650);
     } catch (err) {
       console.error(err);
-      setStatus({ type: "error", text: err.message || "Failed to save email alert config." });
+      setStatus({
+        type: "error",
+        text: err.message || "Failed to save email alert config.",
+      });
       setAlertsEnabled(false);
     } finally {
       setSaving(false);
@@ -185,7 +190,10 @@ const AlertsToggle = () => {
         <span
           style={{
             ...sliderStyle,
-            backgroundColor: alertsEnabled ? "#2d22c5" : "#9ca3af",
+            background: alertsEnabled
+              ? "linear-gradient(135deg, rgba(99,102,241,0.95), rgba(34,197,94,0.85))"
+              : "rgba(255,255,255,0.10)",
+            border: "1px solid rgba(255,255,255,0.12)",
           }}
         >
           <span
@@ -200,8 +208,9 @@ const AlertsToggle = () => {
       <span
         style={{
           marginLeft: 10,
-          fontWeight: 800,
-          color: alertsEnabled ? "#16a34a" : "#374151",
+          fontWeight: 950,
+          color: alertsEnabled ? "#22c55e" : "#9CA3AF",
+          letterSpacing: 0.4,
         }}
       >
         {alertsEnabled ? "ON" : "OFF"}
@@ -212,7 +221,13 @@ const AlertsToggle = () => {
         <div style={backdrop} onMouseDown={onCloseModal}>
           <div style={modal} onMouseDown={(e) => e.stopPropagation()}>
             <div style={modalHeader}>
-              <h2 style={modalTitle}>EMAIL ALERTS</h2>
+              <div>
+                <h2 style={modalTitle}>EMAIL ALERTS</h2>
+                <div style={modalSubTitle}>
+                  Configure recipients. Alerts trigger only on threshold breaches.
+                </div>
+              </div>
+
               <button style={xBtn} onClick={onCloseModal} aria-label="Close">
                 ✕
               </button>
@@ -222,12 +237,16 @@ const AlertsToggle = () => {
             {status.text ? (
               <div
                 style={{
-                  marginBottom: 10,
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  fontWeight: 800,
-                  background: status.type === "error" ? "#fee2e2" : "#dcfce7",
-                  color: status.type === "error" ? "#991b1b" : "#166534",
+                  ...statusBox,
+                  background:
+                    status.type === "error"
+                      ? "rgba(239,68,68,0.16)"
+                      : "rgba(34,197,94,0.16)",
+                  border:
+                    status.type === "error"
+                      ? "1px solid rgba(239,68,68,0.25)"
+                      : "1px solid rgba(34,197,94,0.25)",
+                  color: status.type === "error" ? "#fecaca" : "#bbf7d0",
                 }}
               >
                 {status.text}
@@ -268,14 +287,14 @@ const AlertsToggle = () => {
               </div>
 
               {/* Submit */}
-              <div style={{ display: "flex", justifyContent: "center", marginTop: 18 }}>
+              <div style={{ display: "flex", justifyContent: "center", marginTop: 6 }}>
                 <button style={submitBtn} onClick={onSubmit} disabled={saving}>
                   {saving ? "Saving..." : "Submit"}
                 </button>
               </div>
 
-              <div style={{ marginTop: 10, textAlign: "center", color: "#6b7280", fontWeight: 700, fontSize: 12 }}>
-                Alerts will be sent only when a threshold is breached after enabling.
+              <div style={helperText}>
+                No test email will be sent on submit. Alerts start from the next threshold breach.
               </div>
             </div>
           </div>
@@ -287,7 +306,7 @@ const AlertsToggle = () => {
 
 export default AlertsToggle;
 
-/* ---------- Styles ---------- */
+/* ---------- Styles (Dark / Glass) ---------- */
 
 const containerStyle = {
   display: "flex",
@@ -298,9 +317,10 @@ const containerStyle = {
 };
 
 const labelStyle = {
-  fontWeight: 700,
-  fontSize: 15,
-  color: "#111827",
+  fontWeight: 900,
+  fontSize: 14,
+  color: "#E5E7EB",
+  letterSpacing: 0.4,
 };
 
 const switchStyle = {
@@ -327,14 +347,14 @@ const knobStyle = {
   backgroundColor: "#ffffff",
   borderRadius: "50%",
   transition: "0.25s",
-  boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
+  boxShadow: "0 8px 20px rgba(0,0,0,0.35)",
 };
 
 /* Modal */
 const backdrop = {
   position: "fixed",
   inset: 0,
-  background: "rgba(0,0,0,0.45)",
+  background: "rgba(0,0,0,0.62)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -344,59 +364,91 @@ const backdrop = {
 
 const modal = {
   width: "min(560px, 96vw)",
-  background: "white",
-  borderRadius: 16,
-  boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
+  borderRadius: 18,
   padding: 18,
   position: "relative",
+  background: "rgba(17,24,39,0.92)",
+  border: "1px solid rgba(255,255,255,0.10)",
+  boxShadow: "0 24px 70px rgba(0,0,0,0.45)",
+  backdropFilter: "blur(12px)",
 };
 
 const modalHeader = {
   display: "flex",
-  alignItems: "center",
+  alignItems: "flex-start",
   justifyContent: "space-between",
+  gap: 12,
   marginBottom: 12,
 };
 
-const modalTitle = { margin: 0, fontSize: 18, color: "#111827", fontWeight: 900 };
+const modalTitle = { margin: 0, fontSize: 18, color: "#E5E7EB", fontWeight: 950 };
+
+const modalSubTitle = {
+  marginTop: 4,
+  fontSize: 12,
+  fontWeight: 800,
+  color: "#9CA3AF",
+};
 
 const xBtn = {
-  border: "none",
-  background: "transparent",
-  fontSize: 18,
+  border: "1px solid rgba(255,255,255,0.12)",
+  background: "rgba(255,255,255,0.06)",
+  fontSize: 16,
   cursor: "pointer",
-  color: "#111827",
+  color: "#E5E7EB",
+  width: 36,
+  height: 36,
+  borderRadius: 12,
+};
+
+const statusBox = {
+  marginBottom: 10,
+  padding: "10px 12px",
+  borderRadius: 12,
+  fontWeight: 850,
 };
 
 const form = { display: "flex", flexDirection: "column", gap: 14 };
 const field = { display: "flex", flexDirection: "column" };
-const fieldLabel = { fontWeight: 800, marginBottom: 6, color: "#111827" };
+
+const fieldLabel = { fontWeight: 950, marginBottom: 6, color: "#E5E7EB" };
 
 const input = {
   padding: "12px 12px",
   borderRadius: 12,
-  border: "1px solid #e5e7eb",
+  border: "1px solid rgba(255,255,255,0.10)",
   outline: "none",
   fontSize: 14,
+  color: "#E5E7EB",
+  background: "rgba(255,255,255,0.06)",
 };
 
 const addReceiverBtn = {
   padding: "10px 14px",
   borderRadius: 12,
-  border: "1px solid #e5e7eb",
-  background: "#f3f4f6",
-  color: "#111827",
+  border: "1px solid rgba(255,255,255,0.12)",
+  background: "rgba(255,255,255,0.06)",
+  color: "#E5E7EB",
   cursor: "pointer",
-  fontWeight: 900,
+  fontWeight: 950,
 };
 
 const submitBtn = {
-  padding: "10px 18px",
-  borderRadius: 12,
+  padding: "11px 22px",
+  borderRadius: 14,
   border: "none",
-  background: "#111827",
+  background: "linear-gradient(135deg, rgba(99,102,241,0.95), rgba(34,197,94,0.80))",
   color: "white",
   cursor: "pointer",
-  fontWeight: 900,
-  minWidth: 140,
+  fontWeight: 950,
+  minWidth: 160,
+  boxShadow: "0 18px 50px rgba(0,0,0,0.30)",
+};
+
+const helperText = {
+  marginTop: 2,
+  textAlign: "center",
+  color: "#9CA3AF",
+  fontWeight: 800,
+  fontSize: 12,
 };
