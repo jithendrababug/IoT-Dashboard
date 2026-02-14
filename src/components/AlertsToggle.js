@@ -267,7 +267,7 @@ const AlertsToggle = () => {
 
               {/* To */}
               <div style={field}>
-                <label style={fieldLabel}>To</label>
+                <label style={fieldLabel}>To (only Resend-signed mail id)</label>
 
                 {draftReceivers.map((val, idx) => (
                   <input
@@ -278,12 +278,6 @@ const AlertsToggle = () => {
                     onChange={(e) => onChangeReceiver(idx, e.target.value)}
                   />
                 ))}
-
-                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
-                  <button type="button" style={addReceiverBtn} onClick={onAddReceiver}>
-                    + Add another receiver
-                  </button>
-                </div>
               </div>
 
               {/* Submit */}
