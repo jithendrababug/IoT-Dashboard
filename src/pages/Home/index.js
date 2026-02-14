@@ -17,12 +17,6 @@ const hoverLift = {
   transition: { type: "spring", stiffness: 260, damping: 18 },
 };
 
-function ordinal(n) {
-  const s = ["th", "st", "nd", "rd"];
-  const v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
-}
-
 function useSpotlight() {
   const ref = useRef(null);
   useEffect(() => {
@@ -61,7 +55,7 @@ function Section({ id, title, children }) {
       className="homeSection"
       initial="hidden"
       whileInView="show"
-      viewport={{ once: true, amount: 0.22 }}
+      viewport={{ once: true, amount: 0.18 }}
       variants={fadeUp}
     >
       <div className="sectionHeader">
@@ -90,7 +84,6 @@ export default function Home() {
   const navigate = useNavigate();
   const spotlightRef = useSpotlight();
 
-  // lightweight particles (stable positions)
   const particles = useMemo(() => {
     const count = 18;
     return Array.from({ length: count }).map((_, i) => {
@@ -137,14 +130,12 @@ export default function Home() {
     <div className="page homePage" ref={spotlightRef}>
       <ScrollProgress />
 
-      {/* Background accents */}
+      {/* Effects */}
       <div className="bg-orb orb-1" />
       <div className="bg-orb orb-2" />
-      <div className="bg-grid" />
       <div className="spotlight" aria-hidden="true" />
       <div className="noise" aria-hidden="true" />
 
-      {/* particles */}
       <div className="particles" aria-hidden="true">
         {particles.map((p) => (
           <span
@@ -164,7 +155,7 @@ export default function Home() {
       </div>
 
       <div className="container">
-        {/* Top Nav */}
+        {/* NAV */}
         <div className="homeNav">
           <div className="brand">
             <span className="brandDot" />
@@ -259,13 +250,7 @@ export default function Home() {
 
         {/* FEATURES */}
         <Section id="features" title="Key Features">
-          <motion.div
-            className="grid3"
-            initial="hidden"
-            whileInView="show"
-            viewport={{ once: true, amount: 0.22 }}
-            variants={stagger}
-          >
+          <motion.div className="grid3" initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.18 }} variants={stagger}>
             {features.map((f, idx) => (
               <Feature key={f.title} title={f.title} desc={f.desc} index={idx + 1} />
             ))}
@@ -274,7 +259,7 @@ export default function Home() {
 
         {/* HOW */}
         <Section id="how" title="How It Works (Architecture)">
-          <div className="howCard glassCard">
+          <div className="glassCard howCard">
             <div className="howRow">
               <div className="howStep">
                 <div className="howIndex">01</div>
@@ -342,14 +327,7 @@ export default function Home() {
         </Section>
 
         {/* CTA */}
-        <motion.div
-          id="cta"
-          className="cta glassCard"
-          initial="hidden"
-          whileInView="show"
-          viewport={{ once: true, amount: 0.2 }}
-          variants={fadeUp}
-        >
+        <motion.div id="cta" className="glassCard cta" initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.2 }} variants={fadeUp}>
           <div>
             <h3 className="ctaTitle">Ready to Explore?</h3>
             <p className="ctaDesc">
