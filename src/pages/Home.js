@@ -20,7 +20,6 @@ export default function Home() {
 
         <div style={btnRow}>
           <Link to="/dashboard" style={primaryBtn}>Open Dashboard</Link>
-          <a href="#features" style={secondaryBtn}>View Features</a>
         </div>
 
         <div id="features" style={grid}>

@@ -66,15 +66,7 @@ export default function Home() {
               🚀 Launch Dashboard
             </button>
 
-            <button
-              style={styles.secondaryBtn}
-              onClick={() => {
-                const el = document.getElementById("features");
-                if (el) el.scrollIntoView({ behavior: "smooth" });
-              }}
-            >
-              View Features
-            </button>
+            
           </motion.div>
 
           {/* floating cards */}
