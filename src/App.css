@@ -37,31 +37,3 @@
   }
 }
 
-/* ===== Severity Badges (Alert History) ===== */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 14px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  border: 1px solid transparent;
-  white-space: nowrap;
-}
-
-/* WARNING (orange / yellow pill) */
-.badgeWarn {
-  color: #9a3412;                 /* text */
-  background: rgba(251, 191, 36, 0.18);  /* soft amber */
-  border-color: rgba(251, 191, 36, 0.30);
-}
-
-/* CRITICAL (red pill) */
-.badgeCritical {
-  color: #991b1b;                 /* text */
-  background: rgba(239, 68, 68, 0.18);   /* soft red */
-  border-color: rgba(239, 68, 68, 0.30);
-}
