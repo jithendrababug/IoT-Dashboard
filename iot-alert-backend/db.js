@@ -1,55 +1,38 @@
-import Database from "better-sqlite3";
+import pg from "pg";
+const { Pool } = pg;
 
-const db = new Database("alerts.db");
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  // Render Postgres requires SSL in many cases.
+  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
+});
 
-function migrate() {
-  // Create tables (current schema)
-  db.exec(`
+export async function initDb() {
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS alerts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id BIGSERIAL PRIMARY KEY,
       reading_id TEXT UNIQUE,
-      created_at TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL,
       severity TEXT NOT NULL,
-      temperature REAL NOT NULL,
-      humidity REAL NOT NULL,
-      pressure REAL NOT NULL,
+      temperature DOUBLE PRECISION NOT NULL,
+      humidity DOUBLE PRECISION NOT NULL,
+      pressure DOUBLE PRECISION NOT NULL,
       message TEXT NOT NULL
     );
   `);
 
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS email_config (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       from_email TEXT NOT NULL,
-      recipients TEXT NOT NULL
+      recipients JSONB NOT NULL
     );
   `);
 
-  // Migrate legacy email_config with app_pass column (if it exists)
-  try {
-    const cols = db.prepare(`PRAGMA table_info(email_config)`).all().map((c) => c.name);
-    if (cols.includes("app_pass")) {
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS email_config_new (
-          id INTEGER PRIMARY KEY CHECK (id = 1),
-          from_email TEXT NOT NULL,
-          recipients TEXT NOT NULL
-        );
-      `);
-
-      db.exec(`
-        INSERT OR REPLACE INTO email_config_new (id, from_email, recipients)
-        SELECT id, from_email, recipients FROM email_config;
-      `);
-
-      db.exec(`DROP TABLE email_config;`);
-      db.exec(`ALTER TABLE email_config_new RENAME TO email_config;`);
-    }
-  } catch {
-    // ignore migration errors
-  }
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS alert_state (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
 }
-
-migrate();
-
-export default db;

@@ -1,27 +1,11 @@
-import express from "express";
-import cors from "cors";
 import dotenv from "dotenv";
-import db from "./db.js";
-
 dotenv.config();
 
+import express from "express";
+import cors from "cors";
+import { pool, initDb } from "./db.js";
 
-function loadEmailConfig() {
-  const row = db.prepare("SELECT * FROM email_config WHERE id = 1").get();
-  if (!row) return null;
-
-  let recipients = [];
-  try {
-    recipients = JSON.parse(row.recipients || "[]");
-  } catch {
-    recipients = [];
-  }
-
-  return {
-    fromEmail: row.from_email,
-    recipients,
-  };
-}
+await initDb();
 
 const app = express();
 
@@ -36,9 +20,10 @@ app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
 app.use(express.json());
 
+/* -------------------- Helpers -------------------- */
 
-const COOLDOWN_MS = 5 * 60 * 1000; 
-let lastSentAt = 0;
+const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes (shared via Postgres)
+const COOLDOWN_KEY = "last_email_sent_at_ms";
 
 const isValidEmail = (v) =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
@@ -47,7 +32,7 @@ function toISTISOString(dateLike) {
   const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
   if (Number.isNaN(d.getTime())) return null;
 
-  const s = d.toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" }); 
+  const s = d.toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" });
   return s.replace(" ", "T") + "+05:30";
 }
 
@@ -71,6 +56,34 @@ function getSeverityAndTriggers({ temperature, humidity, pressure }) {
   return { triggers, severity, message };
 }
 
+async function loadEmailConfig() {
+  const { rows } = await pool.query("SELECT * FROM email_config WHERE id = 1");
+  const row = rows[0];
+  if (!row) return null;
+
+  return {
+    fromEmail: row.from_email,
+    recipients: Array.isArray(row.recipients) ? row.recipients : [],
+  };
+}
+
+/* Cooldown state stored in Postgres (works across restarts + multi instances) */
+async function getLastSentAtMs() {
+  const { rows } = await pool.query("SELECT value FROM alert_state WHERE key = $1", [COOLDOWN_KEY]);
+  const n = Number(rows[0]?.value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+async function setLastSentAtMs(ms) {
+  await pool.query(
+    `
+    INSERT INTO alert_state (key, value)
+    VALUES ($1, $2)
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    `,
+    [COOLDOWN_KEY, String(ms)]
+  );
+}
 
 async function sendEmailViaResend({ replyTo, toList, subject, text }) {
   const key = process.env.RESEND_API_KEY;
@@ -80,7 +93,7 @@ async function sendEmailViaResend({ replyTo, toList, subject, text }) {
     throw err;
   }
 
-
+  // NOTE: For production you should use a verified sender/domain in Resend.
   const fromAddress = "IoT Dashboard <onboarding@resend.dev>";
 
   const payload = {
@@ -109,23 +122,24 @@ async function sendEmailViaResend({ replyTo, toList, subject, text }) {
     throw err;
   }
 
-  return json; 
+  return json;
 }
 
+/* -------------------- Routes -------------------- */
 
-app.get("/api/alerts/config", (req, res) => {
+app.get("/api/alerts/config", async (req, res) => {
   try {
-    const cfg = loadEmailConfig();
+    const cfg = await loadEmailConfig();
     const hasConfig =
       !!cfg && !!cfg.fromEmail && Array.isArray(cfg.recipients) && cfg.recipients.length > 0;
+
     return res.json({ ok: true, hasConfig });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-
-app.post("/api/alerts/config", (req, res) => {
+app.post("/api/alerts/config", async (req, res) => {
   try {
     const { fromEmail, recipients } = req.body || {};
 
@@ -146,13 +160,16 @@ app.post("/api/alerts/config", (req, res) => {
       return res.status(400).json({ ok: false, error: `Invalid receiver email: ${bad}` });
     }
 
-    db.prepare(`
+    await pool.query(
+      `
       INSERT INTO email_config (id, from_email, recipients)
-      VALUES (1, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        from_email=excluded.from_email,
-        recipients=excluded.recipients
-    `).run(from, JSON.stringify(list));
+      VALUES (1, $1, $2::jsonb)
+      ON CONFLICT (id)
+      DO UPDATE SET from_email = EXCLUDED.from_email,
+                    recipients = EXCLUDED.recipients
+      `,
+      [from, JSON.stringify(list)]
+    );
 
     return res.json({ ok: true });
   } catch (err) {
@@ -160,7 +177,6 @@ app.post("/api/alerts/config", (req, res) => {
     return res.status(500).json({ ok: false, error: err.message });
   }
 });
-
 
 app.post("/api/alerts/email", async (req, res) => {
   try {
@@ -173,12 +189,15 @@ app.post("/api/alerts/email", async (req, res) => {
       });
     }
 
-    const { triggers, severity, message } = getSeverityAndTriggers({
-      temperature: Number(temperature),
-      humidity: Number(humidity),
-      pressure: Number(pressure),
-    });
+    const tempN = Number(temperature);
+    const humN = Number(humidity);
+    const presN = Number(pressure);
 
+    const { triggers, severity, message } = getSeverityAndTriggers({
+      temperature: tempN,
+      humidity: humN,
+      pressure: presN,
+    });
 
     if (triggers.length === 0) {
       return res.json({ ok: true, stored: false, sent: false, reason: "No threshold breached" });
@@ -188,17 +207,15 @@ app.post("/api/alerts/email", async (req, res) => {
       normalizeToIST(clientTimeISO) ||
       new Date().toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" }).replace(" ", "T") + "+05:30";
 
-
-    try {
-      db.prepare(
-        `INSERT INTO alerts (reading_id, created_at, severity, temperature, humidity, pressure, message)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run(readingId, createdAtFinal, severity, temperature, humidity, pressure, message);
-    } catch (e) {
-
-      if (!String(e.message || "").includes("UNIQUE")) throw e;
-    }
-
+    // Store alert (idempotent by reading_id)
+    await pool.query(
+      `
+      INSERT INTO alerts (reading_id, created_at, severity, temperature, humidity, pressure, message)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (reading_id) DO NOTHING
+      `,
+      [readingId, createdAtFinal, severity, tempN, humN, presN, message]
+    );
 
     if (!sendEmail) {
       return res.json({
@@ -210,8 +227,10 @@ app.post("/api/alerts/email", async (req, res) => {
       });
     }
 
-
+    // Cooldown check (Postgres-backed)
     const nowMs = Date.now();
+    const lastSentAt = await getLastSentAtMs();
+
     if (nowMs - lastSentAt < COOLDOWN_MS) {
       return res.json({
         ok: true,
@@ -219,10 +238,11 @@ app.post("/api/alerts/email", async (req, res) => {
         sent: false,
         reason: "Cooldown active",
         created_at: createdAtFinal,
+        cooldown_remaining_ms: COOLDOWN_MS - (nowMs - lastSentAt),
       });
     }
 
-    const emailConfig = loadEmailConfig();
+    const emailConfig = await loadEmailConfig();
     if (!emailConfig?.fromEmail || !emailConfig?.recipients?.length) {
       return res.json({
         ok: true,
@@ -243,12 +263,13 @@ app.post("/api/alerts/email", async (req, res) => {
         `Date & Time (IST): ${createdAtFinal}\n\n` +
         `Triggered Conditions:\n- ${triggers.join("\n- ")}\n\n` +
         `Current Readings:\n` +
-        `Temperature: ${temperature}°C\n` +
-        `Humidity: ${humidity}%\n` +
-        `Pressure: ${pressure} hPa\n`,
+        `Temperature: ${tempN}°C\n` +
+        `Humidity: ${humN}%\n` +
+        `Pressure: ${presN} hPa\n`,
     });
 
-    lastSentAt = nowMs;
+    // Persist cooldown timestamp
+    await setLastSentAtMs(nowMs);
 
     return res.json({
       ok: true,
@@ -261,16 +282,18 @@ app.post("/api/alerts/email", async (req, res) => {
       id: result?.id,
     });
   } catch (err) {
-    console.error(" Email alert error:", err);
+    console.error("Email alert error:", err);
     return res.status(500).json({ ok: false, error: err.message, code: err.code });
   }
 });
 
-
-app.get("/api/alerts/history", (req, res) => {
+app.get("/api/alerts/history", async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit || 10), 100);
-    const rows = db.prepare("SELECT * FROM alerts ORDER BY created_at DESC LIMIT ?").all(limit);
+    const { rows } = await pool.query(
+      "SELECT * FROM alerts ORDER BY created_at DESC LIMIT $1",
+      [limit]
+    );
     return res.json({ ok: true, alerts: rows });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
@@ -278,4 +301,4 @@ app.get("/api/alerts/history", (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(` Backend running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
