@@ -1,99 +1,327 @@
-IoT Sensor Monitoring Dashboard
+# IoT Sensor Monitoring Dashboard
 
-   Real-time IoT Sensor Monitoring Dashboard using React and Node. js searchable table visualization of live sensor data, auto alerts and categorized alert history.
+![React](https://img.shields.io/badge/Frontend-React-blue)
+![Node.js](https://img.shields.io/badge/Backend-Node.js-green)
+![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-blue)
+![Render](https://img.shields.io/badge/Deployment-Render-purple)
+![GitHub Pages](https://img.shields.io/badge/Frontend%20Hosting-GitHub%20Pages-black)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
-   A.	Features
-      •	Live emulation of IoT sensor (Temp, Humidity, Pressure) data
-      •	Real time updating line charts for sensor trends
-      •	Paginated table of sensor readings - (20 readings, 10 per page)
-      •	Email alerts based on threshold WARN and CRITICAL levels
-      •	Allow users to toggle Alert Enabled / Disabled from UI
-      •	Notification history stored in the SQLite database
-      •	Report export of alert history to CSV
-      •	Professional, responsive and clean dashboard UI
+This project is a full-stack IoT monitoring dashboard that simulates sensor data, detects abnormal readings, stores alert history in a PostgreSQL database, and sends email notifications when thresholds are exceeded.
 
-   B.	Tech Stack
-      •	Frontend
-         	React.js
-         	Zustand (State Management)
-         	Recharts (Data Visualization)
-         	HTML5, CSS3, JavaScript (ES6+)
+I built this project to demonstrate how a real-world monitoring system works — including frontend visualization, backend API development, database integration, and production deployment.
 
-      •	Backend
-         	Node.js
-         	Express.js
-         	Nodemailer (Email Alerts)
-         	SQLite (Alert History Database)
+---
 
-   C.	Alert Thresholds
+# Live Demo
 
-   Sensor           | Warning Level	|Critical Level
-   -----------------|---------------|-------------
-   Temperature (°C) |> 30 °C	      |≥ 35 °C
-   Humidity (%)	  |> 70 %	      |≥ 85 %
-   Pressure (hPa)	  |> 1020 hPa	   |≥ 1030 hPa
+Frontend
+https://jithendrababug.github.io/IoT-Dashboard/
+
+Backend API
+https://iot-dashboard-y27r.onrender.com
+
+---
 
 
-   D.	System Architecture
+# Features
 
-      React Dashboard
-      ↓
-      REST API (Node. js / Express)
-      ↓
-      SQLite Database (Alert History)
-      ↓
-      Email Notifications
+## Real-Time Sensor Monitoring
 
-   E.	How to Run Locally
+The dashboard simulates IoT sensor readings for:
 
-      Step 1: Clone the repository
-      git clone https://github.com/jithendrababug/IoT-Dashboard.git
+* Temperature
+* Humidity
+* Pressure
 
-      Step 2: Run the Frontend
-      >cd iot-dashboard
-      >npm install
-      >npm start
-      App runs on: http://localhost:3000
+New readings are generated automatically every 5 minutes. The latest values are displayed clearly using live sensor cards.
 
-      Step 3:  Run the Backend
-      >cd iot-alert-backend
-      >npm install
-      >npm start
-      Backend runs on: http://localhost:5000
-      > Email credentials are securely managed using environment variables (.env file).
+---
 
-   F.	Database
-      •	Alert history is stored in a local SQLite database (alerts.db)
-      •	Each alert includes:
-         	Date & Time
-         	Severity (WARNING / CRITICAL)
-         	Sensor values
-         	Trigger message
+## Data Visualization
 
-   G.	Key Highlights
+The dashboard provides multiple ways to view the data:
 
-      •	Real-time data handling and visualization
-      •	Secure backend architecture with environment-based configuration
-      •	Production-style alerting system with cooldown logic
-      •	Practical features like alert history tracking and CSV export
-      •	Well-structured frontend and backend separation
+* Line chart showing trends over time
+* Paginated table of recent readings
+* Displays the latest 20 sensor records
+* Clean, responsive interface that works on different screen sizes
 
-   H.	Future Enhancements
+---
 
-      •	Integrate live sensor data from IoT devices (ESP32/Raspberry Pi) using MQTT or WebSockets to replace simulated readings.
-      •	Allow users to dynamically configure sensor threshold limits through the dashboard and store them persistently.
-      •	Add secure login with role-based permissions to restrict alert configuration and data access.
-      •	Migrate the backend and database to a cloud environment to support multi-user access and scalability.
-      Introduce historical trend analysis and predictive alerts using basic machine learning models.
+## Alert Detection System
 
-   --User Flow Diagram--
-   ![User Flow Diagram](docs/user_flow_diagram.png)
+Whenever a sensor value crosses a defined threshold, the system automatically detects it and classifies the alert as:
 
-   --Sequence Diagram--
-   ![Sequence Diagram](docs/sequence_diagram.png)
+* WARNING
+* CRITICAL
 
---Author--
+Each alert is stored permanently in the PostgreSQL database for future reference.
+
+---
+
+## Email Notifications
+
+Users can enable email alerts directly from the dashboard. Once enabled:
+
+* Alerts are sent automatically when thresholds are breached
+* Multiple recipients can be configured
+* A cooldown mechanism prevents sending too many emails in a short time
+
+Email delivery is handled using the Resend Email API.
+
+---
+
+## Alert History and Reporting
+
+The dashboard keeps a record of recent alerts and allows users to:
+
+* View alert history
+* Refresh alerts from the database
+* Export alert data as a CSV file
+
+This makes it easier to track and analyze abnormal sensor behavior.
+
+---
+
+# Technology Stack
+
+## Frontend
+
+* React.js
+* Zustand for state management
+* Recharts for data visualization
+* Framer Motion for animations
+* HTML, CSS, JavaScript
+
+---
+
+## Backend
+
+* Node.js
+* Express.js
+* PostgreSQL database
+* REST API architecture
+* Resend Email API for notifications
+
+---
+
+## Database
+
+PostgreSQL is used to store:
+
+* Alert history
+* Email configuration
+* System state (cooldown tracking)
+
+The database is hosted on Render.
+
+---
+
+## Deployment
+
+The project is fully deployed using cloud services:
+
+* Frontend hosted on GitHub Pages
+* Backend hosted on Render
+* PostgreSQL database hosted on Render
+
+---
+
+# Database Structure
+
+## alerts table
+
+Stores all alert records.
+
+```sql
+CREATE TABLE alerts (
+  id BIGSERIAL PRIMARY KEY,
+  reading_id TEXT UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL,
+  severity TEXT NOT NULL,
+  temperature DOUBLE PRECISION NOT NULL,
+  humidity DOUBLE PRECISION NOT NULL,
+  pressure DOUBLE PRECISION NOT NULL,
+  message TEXT NOT NULL
+);
+```
+
+---
+
+## email_config table
+
+Stores email sender and recipients.
+
+```sql
+CREATE TABLE email_config (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  from_email TEXT NOT NULL,
+  recipients JSONB NOT NULL
+);
+```
+
+---
+
+## alert_state table
+
+Stores system state such as cooldown timestamps.
+
+```sql
+CREATE TABLE alert_state (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+```
+
+---
+
+# API Endpoints
+
+Configure email alerts:
+
+```
+POST /api/alerts/config
+```
+
+Check email configuration:
+
+```
+GET /api/alerts/config
+```
+
+Create alert and send email:
+
+```
+POST /api/alerts/email
+```
+
+Fetch alert history:
+
+```
+GET /api/alerts/history?limit=10
+```
+
+---
+
+# How the System Works
+
+1. Sensor readings are generated automatically
+2. The frontend sends the reading to the backend
+3. The backend checks if any thresholds are exceeded
+4. If a breach is detected:
+
+   * The alert is stored in PostgreSQL
+   * An email notification is sent (if enabled)
+5. The frontend retrieves alert history and displays it
+
+---
+
+# Running Locally
+
+## Clone the repository
+
+```bash
+git clone https://github.com/jithendrababug/IoT-Dashboard.git
+cd IoT-Dashboard
+```
+
+---
+
+## Start Backend
+
+```bash
+cd iot-alert-backend
+npm install
+```
+
+Create a `.env` file:
+
+```
+PORT=5000
+DATABASE_URL=your_postgres_connection_string
+RESEND_API_KEY=your_resend_api_key
+NODE_ENV=development
+```
+
+Run backend:
+
+```bash
+npm start
+```
+
+---
+
+## Start Frontend
+
+```bash
+cd ../iot-dashboard
+npm install
+npm start
+```
+
+Frontend runs at:
+
+```
+http://localhost:3000
+```
+
+---
+
+# Deployment
+
+Backend is deployed on Render and automatically updates when changes are pushed to GitHub.
+
+Frontend is deployed using GitHub Pages:
+
+```bash
+npm run deploy
+```
+
+---
+
+# Highlights
+
+This project demonstrates:
+
+* Full-stack development
+* Cloud database integration
+* REST API design
+* Email notification system
+* Real-time data simulation
+* Production deployment
+* Clean and structured architecture
+
+---
+
+# Future Improvements
+
+Possible enhancements include:
+
+* Integration with real IoT hardware
+* User authentication system
+* Role-based access control
+* WebSocket real-time updates
+* Configurable alert thresholds
+* Multi-device monitoring support
+
+---
+
+# Author
+
 Jithendra Babu G
 
---License--
-This project is open-source and available under the MIT License.
+GitHub
+https://github.com/jithendrababug
+
+LinkedIn
+https://www.linkedin.com/in/jithendrababug
+
+Email
+[jithendrababug@gmail.com](mailto:jithendrababug@gmail.com)
+
+---
+
+# License
+
+This project is licensed under the MIT License.
