@@ -6,44 +6,6 @@ import db from "./db.js";
 dotenv.config();
 
 
-function ensureEmailConfigSchema() {
-  try {
-    const cols = db
-      .prepare(`PRAGMA table_info(email_config)`)
-      .all()
-      .map((c) => c.name);
-
-    if (!cols.length) return;
-
-    const hasAppPass = cols.includes("app_pass");
-
-    if (hasAppPass) {
-      console.log(" Migrating DB: removing legacy column app_pass...");
-
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS email_config_new (
-          id INTEGER PRIMARY KEY CHECK (id = 1),
-          from_email TEXT NOT NULL,
-          recipients TEXT NOT NULL
-        );
-      `);
-
-      db.exec(`
-        INSERT OR REPLACE INTO email_config_new (id, from_email, recipients)
-        SELECT id, from_email, recipients FROM email_config;
-      `);
-
-      db.exec(`DROP TABLE email_config;`);
-      db.exec(`ALTER TABLE email_config_new RENAME TO email_config;`);
-
-      console.log(" Migration done: app_pass removed.");
-    }
-  } catch (e) {
-    console.error(" DB migration failed:", e.message);
-  }
-}
-ensureEmailConfigSchema();
-
 function loadEmailConfig() {
   const row = db.prepare("SELECT * FROM email_config WHERE id = 1").get();
   if (!row) return null;
