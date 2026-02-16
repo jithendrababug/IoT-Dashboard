@@ -5,10 +5,7 @@ import db from "./db.js";
 
 dotenv.config();
 
-/* ---------------------------
-   ✅ AUTO DB MIGRATION (LONG-TERM FIX)
-   Ensure email_config has ONLY: id, from_email, recipients
----------------------------- */
+
 function ensureEmailConfigSchema() {
   try {
     const cols = db
@@ -21,7 +18,7 @@ function ensureEmailConfigSchema() {
     const hasAppPass = cols.includes("app_pass");
 
     if (hasAppPass) {
-      console.log("🔧 Migrating DB: removing legacy column app_pass...");
+      console.log(" Migrating DB: removing legacy column app_pass...");
 
       db.exec(`
         CREATE TABLE IF NOT EXISTS email_config_new (
@@ -39,10 +36,10 @@ function ensureEmailConfigSchema() {
       db.exec(`DROP TABLE email_config;`);
       db.exec(`ALTER TABLE email_config_new RENAME TO email_config;`);
 
-      console.log("✅ Migration done: app_pass removed.");
+      console.log(" Migration done: app_pass removed.");
     }
   } catch (e) {
-    console.error("❌ DB migration failed:", e.message);
+    console.error(" DB migration failed:", e.message);
   }
 }
 ensureEmailConfigSchema();
@@ -66,7 +63,7 @@ function loadEmailConfig() {
 
 const app = express();
 
-/* ✅ CORS */
+/* CORS */
 const corsOptions = {
   origin: ["http://localhost:3000", "https://jithendrababug.github.io"],
   methods: ["GET", "POST", "OPTIONS"],
@@ -77,10 +74,8 @@ app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
 app.use(express.json());
 
-/* ---------------------------
-   ✅ Helpers
----------------------------- */
-const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
+const COOLDOWN_MS = 5 * 60 * 1000; 
 let lastSentAt = 0;
 
 const isValidEmail = (v) =>
@@ -90,7 +85,7 @@ function toISTISOString(dateLike) {
   const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
   if (Number.isNaN(d.getTime())) return null;
 
-  const s = d.toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" }); // "YYYY-MM-DD HH:mm:ss"
+  const s = d.toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" }); 
   return s.replace(" ", "T") + "+05:30";
 }
 
@@ -114,9 +109,7 @@ function getSeverityAndTriggers({ temperature, humidity, pressure }) {
   return { triggers, severity, message };
 }
 
-/* ------------------------------------------------
-   ✅ RESEND EMAIL SENDER (works on Render)
-------------------------------------------------- */
+
 async function sendEmailViaResend({ replyTo, toList, subject, text }) {
   const key = process.env.RESEND_API_KEY;
   if (!key) {
@@ -125,8 +118,7 @@ async function sendEmailViaResend({ replyTo, toList, subject, text }) {
     throw err;
   }
 
-  // ✅ Works even without your own domain (for now).
-  // Later, when you buy/verify a domain in Resend, change this.
+
   const fromAddress = "IoT Dashboard <onboarding@resend.dev>";
 
   const payload = {
@@ -155,14 +147,10 @@ async function sendEmailViaResend({ replyTo, toList, subject, text }) {
     throw err;
   }
 
-  return json; // includes id
+  return json; 
 }
 
-/* ---------------------------
-   ✅ CONFIG APIs
----------------------------- */
 
-// Status (optional)
 app.get("/api/alerts/config", (req, res) => {
   try {
     const cfg = loadEmailConfig();
@@ -174,7 +162,7 @@ app.get("/api/alerts/config", (req, res) => {
   }
 });
 
-// Save popup config (NO password now)
+
 app.post("/api/alerts/config", (req, res) => {
   try {
     const { fromEmail, recipients } = req.body || {};
@@ -211,14 +199,7 @@ app.post("/api/alerts/config", (req, res) => {
   }
 });
 
-/* ---------------------------
-   ✅ TEST EMAIL (kept)
----------------------------- */
 
-/* ---------------------------
-   ✅ MAIN PRODUCTION ALERT ENDPOINT
-   sensorAPI.js should call this (it already does)
----------------------------- */
 app.post("/api/alerts/email", async (req, res) => {
   try {
     const { readingId, temperature, humidity, pressure, clientTimeISO, sendEmail } = req.body || {};
@@ -236,7 +217,7 @@ app.post("/api/alerts/email", async (req, res) => {
       pressure: Number(pressure),
     });
 
-    // No threshold breach => do nothing
+
     if (triggers.length === 0) {
       return res.json({ ok: true, stored: false, sent: false, reason: "No threshold breached" });
     }
@@ -245,18 +226,18 @@ app.post("/api/alerts/email", async (req, res) => {
       normalizeToIST(clientTimeISO) ||
       new Date().toLocaleString("sv-SE", { timeZone: "Asia/Kolkata" }).replace(" ", "T") + "+05:30";
 
-    // Store alert (dedupe on reading_id)
+
     try {
       db.prepare(
         `INSERT INTO alerts (reading_id, created_at, severity, temperature, humidity, pressure, message)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       ).run(readingId, createdAtFinal, severity, temperature, humidity, pressure, message);
     } catch (e) {
-      // If duplicate, ignore (reading_id UNIQUE)
+
       if (!String(e.message || "").includes("UNIQUE")) throw e;
     }
 
-    // If UI toggle is OFF => don't email
+
     if (!sendEmail) {
       return res.json({
         ok: true,
@@ -267,7 +248,7 @@ app.post("/api/alerts/email", async (req, res) => {
       });
     }
 
-    // Cooldown
+
     const nowMs = Date.now();
     if (nowMs - lastSentAt < COOLDOWN_MS) {
       return res.json({
@@ -279,7 +260,6 @@ app.post("/api/alerts/email", async (req, res) => {
       });
     }
 
-    // Load email config
     const emailConfig = loadEmailConfig();
     if (!emailConfig?.fromEmail || !emailConfig?.recipients?.length) {
       return res.json({
@@ -319,14 +299,12 @@ app.post("/api/alerts/email", async (req, res) => {
       id: result?.id,
     });
   } catch (err) {
-    console.error("❌ Email alert error:", err);
+    console.error(" Email alert error:", err);
     return res.status(500).json({ ok: false, error: err.message, code: err.code });
   }
 });
 
-/* ---------------------------
-   ✅ ALERT HISTORY
----------------------------- */
+
 app.get("/api/alerts/history", (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit || 10), 100);
@@ -338,4 +316,4 @@ app.get("/api/alerts/history", (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`✅ Backend running on port ${PORT}`));
+app.listen(PORT, () => console.log(` Backend running on port ${PORT}`));

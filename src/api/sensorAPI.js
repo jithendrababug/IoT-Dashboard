@@ -6,24 +6,23 @@ let timeoutId = null;
 const INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const SEED_COUNT = 20;
 
-// ✅ API base
+
 const API_BASE =
   process.env.REACT_APP_API_BASE ||
   (process.env.NODE_ENV === "production"
     ? "https://iot-dashboard-y27r.onrender.com"
     : "http://localhost:5000");
 
-// ✅ IST offset in minutes (+05:30)
+
 const IST_OFFSET_MIN = 330;
 
-// ✅ Convert a Date -> ISO string in IST with +05:30
-// Example output: 2026-02-10T03:10:00.000+05:30
+
 function toISTISOString(date) {
   const ist = new Date(date.getTime() + IST_OFFSET_MIN * 60 * 1000);
   return ist.toISOString().replace("Z", "+05:30");
 }
 
-// ✅ Snap any time to the previous 5-min boundary (and set seconds=0)
+
 function floorTo5Minutes(date) {
   const d = new Date(date);
   d.setSeconds(0, 0);
@@ -32,7 +31,7 @@ function floorTo5Minutes(date) {
   return d;
 }
 
-// ✅ deterministic PRNG (stable values across reload)
+
 function mulberry32(seed) {
   let t = seed >>> 0;
   return function () {
@@ -43,11 +42,11 @@ function mulberry32(seed) {
   };
 }
 
-// ✅ Create stable reading based on time
+
 function makeReading(dateObj) {
   const readingId = String(dateObj.getTime());
 
-  // ✅ IMPORTANT FIX: store IST ISO (not UTC Z)
+
   const timeISO = toISTISOString(dateObj);
 
   const rand = mulberry32(dateObj.getTime());
@@ -57,12 +56,12 @@ function makeReading(dateObj) {
     readingId,
     timeISO,
 
-    // UI label (time only) — keep as you had
+ 
     time: dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
 
-    temperature: Number((20 + rand() * 10).toFixed(1)), // 20–30
-    humidity: Number((40 + rand() * 20).toFixed(1)), // 40–60
-    pressure: Number((1000 + rand() * 50).toFixed(1)), // 1000–1050
+    temperature: Number((20 + rand() * 10).toFixed(1)), 
+    humidity: Number((40 + rand() * 20).toFixed(1)), 
+    pressure: Number((1000 + rand() * 50).toFixed(1)), 
   };
 }
 
@@ -116,7 +115,7 @@ async function recordAlertIfBreach(reading) {
     humidity: reading.humidity,
     pressure: reading.pressure,
 
-    // ✅ IMPORTANT FIX: send IST ISO to backend
+    
     clientTimeISO: reading.timeISO,
 
     sendEmail: !!alertsEnabled,
@@ -124,7 +123,7 @@ async function recordAlertIfBreach(reading) {
 
   await postWithRetry(`${API_BASE}/api/alerts/email`, payload, 3);
 
-  // ✅ Let AlertHistory refresh instantly
+
   window.dispatchEvent(new Event("alerts-updated"));
 }
 
@@ -135,7 +134,7 @@ export const startSensorSimulation = () => {
 
   const store = useSensorStore.getState();
 
-  // ✅ Seed 20 readings aligned to boundary
+
   const alignedNow = floorTo5Minutes(new Date());
 
   for (let i = SEED_COUNT - 1; i >= 0; i--) {
@@ -167,7 +166,7 @@ export const startSensorSimulation = () => {
     }
   };
 
-  // ✅ Run exactly at next boundary
+
   const now = new Date();
   const base = floorTo5Minutes(now);
   const next = new Date(base.getTime() + INTERVAL_MS);

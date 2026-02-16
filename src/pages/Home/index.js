@@ -191,7 +191,7 @@ export default function Home() {
 
             <div className="heroActions">
               <button className="btn btnPrimary" onClick={() => navigate("/dashboard")}>
-                🚀 View Live Dashboard
+                View Live Dashboard
               </button>
               <a className="btn btnGhost" href="#how">See How It Works</a>
             </div>
@@ -336,7 +336,7 @@ export default function Home() {
           </div>
 
           <button className="btn btnPrimary" onClick={() => navigate("/dashboard")}>
-            👉 View Live Dashboard
+            View Live Dashboard
           </button>
         </motion.div>
 

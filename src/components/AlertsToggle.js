@@ -17,10 +17,10 @@ const AlertsToggle = () => {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // inline status inside modal
+
   const [status, setStatus] = useState({ type: "", text: "" });
 
-  // draft values (modal)
+
   const [draftFrom, setDraftFrom] = useState(emailConfig?.from || "");
   const [draftReceivers, setDraftReceivers] = useState(
     Array.isArray(emailConfig?.receivers) && emailConfig.receivers.length
@@ -68,7 +68,7 @@ const AlertsToggle = () => {
     const next = e.target.checked;
 
     if (next) {
-      // open modal, but DO NOT keep enabled unless submit succeeds
+
       openModalWithCurrentConfig();
     } else {
       setAlertsEnabled(false);
@@ -78,7 +78,7 @@ const AlertsToggle = () => {
   };
 
   const onCloseModal = () => {
-    // If user closes without submitting => keep alerts OFF
+
     setOpen(false);
     setAlertsEnabled(false);
     setStatus({ type: "", text: "" });
@@ -100,13 +100,13 @@ const AlertsToggle = () => {
       .map((r) => String(r || "").trim())
       .filter(Boolean);
 
-    // Validations
+
     if (!from) {
       setStatus({ type: "error", text: "Please enter the From value." });
       return;
     }
 
-    // Keep email validation (recommended)
+
     if (!validateEmail(from)) {
       setStatus({ type: "error", text: "Please enter a valid email in From." });
       return;
@@ -130,7 +130,7 @@ const AlertsToggle = () => {
     setStatus({ type: "", text: "" });
 
     try {
-      // ✅ ONLY SAVE CONFIG. No email is sent here. No alert history row is created here.
+
       const res = await fetch(`${API_BASE}/api/alerts/config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -145,17 +145,17 @@ const AlertsToggle = () => {
         throw new Error(json.error || `Failed to save config (HTTP ${res.status})`);
       }
 
-      // store for UI
+
       setEmailConfig({ from, receivers });
 
-      // enable alerts only after successful save
+
       setAlertsEnabled(true);
 
-      // success message (better wording)
+
       setStatus({
         type: "success",
         text:
-          "✅ Email alerts enabled. You will receive notifications only when sensor values cross the threshold from now on.",
+          " Email alerts enabled. You will receive notifications only when sensor values cross the threshold from now on.",
       });
 
       setTimeout(() => {
@@ -300,7 +300,7 @@ const AlertsToggle = () => {
 
 export default AlertsToggle;
 
-/* ---------- Styles (Dark / Glass) ---------- */
+
 
 const containerStyle = {
   display: "flex",

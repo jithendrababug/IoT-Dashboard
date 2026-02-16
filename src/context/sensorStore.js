@@ -4,14 +4,13 @@ export const useSensorStore = create((set) => ({
   sensors: [],
   latest: { temperature: "-", humidity: "-", pressure: "-" },
 
-  // ✅ Toggle state
+
   alertsEnabled: false,
   setAlertsEnabled: (value) => set({ alertsEnabled: value }),
 
-  // ✅ Email alert config (UI only) — Resend version (NO password)
   emailConfig: {
     from: "",
-    receivers: [""], // default one receiver input
+    receivers: [""],
   },
 
   setEmailConfig: (partial) =>
