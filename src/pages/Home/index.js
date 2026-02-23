@@ -310,7 +310,7 @@ export default function Home() {
               <ul className="stackList">
                 <li>Node.js (Express REST API)</li>
                 <li>Email alerts via Resend</li>
-                <li>SQLite (alerts + config)</li>
+                <li>PostgreSQL (alerts + config)</li>
               </ul>
             </div>
 
